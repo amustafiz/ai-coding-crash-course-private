@@ -4,7 +4,7 @@ import { requireStaff } from "~/lib/access.server";
 import { getCourseById } from "~/services/courseService";
 import { getCourseAnalytics } from "~/services/analyticsService";
 import { formatDollars, formatRate } from "~/lib/utils";
-import { Card, CardContent } from "~/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import {
   AlertTriangle,
@@ -62,9 +62,7 @@ function MetricCard({
         <div>
           <p className="text-sm text-muted-foreground">{label}</p>
           <p className="text-2xl font-semibold">{value}</p>
-          {detail && (
-            <p className="text-xs text-muted-foreground">{detail}</p>
-          )}
+          {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
         </div>
       </CardContent>
     </Card>
@@ -126,6 +124,62 @@ export default function CourseAnalyticsPage({
           icon={<TrendingUp className="size-5" />}
         />
       </div>
+
+      <Card className="mt-8">
+        <CardHeader>
+          <CardTitle>
+            Quizzes{" "}
+            <span className="text-sm font-normal text-muted-foreground">
+              (all-time)
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {analytics.quizzes.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              This course has no quizzes.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="py-2 pr-4 font-medium">Quiz</th>
+                    <th className="py-2 pr-4 text-right font-medium">
+                      Average score
+                    </th>
+                    <th className="py-2 pr-4 text-right font-medium">
+                      Pass rate
+                    </th>
+                    <th className="py-2 text-right font-medium">Attempts</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {analytics.quizzes.map((quiz) => (
+                    <tr key={quiz.id} className="border-b last:border-0">
+                      <td className="py-2 pr-4">
+                        {quiz.title}
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          pass mark {formatRate(quiz.passingScore)}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-4 text-right tabular-nums">
+                        {formatRate(quiz.averageScore)}
+                      </td>
+                      <td className="py-2 pr-4 text-right tabular-nums">
+                        {formatRate(quiz.passRate)}
+                      </td>
+                      <td className="py-2 text-right tabular-nums">
+                        {quiz.attemptCount.toLocaleString("en-US")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

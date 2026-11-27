@@ -11,6 +11,7 @@ import {
   BarChart3,
   BookOpen,
   CheckCircle2,
+  ClipboardCheck,
   DollarSign,
   GraduationCap,
   Plus,
@@ -163,7 +164,7 @@ export default function InstructorDashboard({
       </div>
 
       {state === "ready" && (
-        <div className="mb-8 grid gap-4 sm:grid-cols-3">
+        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <SummaryCard
             label="Students"
             value={summary.studentCount.toLocaleString("en-US")}
@@ -178,6 +179,11 @@ export default function InstructorDashboard({
             label="Completion rate"
             value={formatRate(summary.completionRate)}
             icon={<CheckCircle2 className="size-5" />}
+          />
+          <SummaryCard
+            label="Average quiz score (all-time)"
+            value={formatRate(summary.averageQuizScore)}
+            icon={<ClipboardCheck className="size-5" />}
           />
         </div>
       )}

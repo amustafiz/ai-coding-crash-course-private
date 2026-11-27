@@ -141,6 +141,7 @@ describe("getInstructorAnalytics (dashboard)", () => {
       studentCount: 0,
       grossRevenue: 0,
       completionRate: null,
+      averageQuizScore: null,
     });
     expect(result.courses).toEqual([
       expect.objectContaining({
@@ -169,6 +170,7 @@ describe("getInstructorAnalytics (dashboard)", () => {
       studentCount: 0,
       grossRevenue: 0,
       completionRate: null,
+      averageQuizScore: null,
     });
   });
 
@@ -195,6 +197,7 @@ describe("getInstructorAnalytics (dashboard)", () => {
       studentCount: 2,
       grossRevenue: 3000,
       completionRate: 0.5,
+      averageQuizScore: null,
     });
     expect(result.courses).toHaveLength(3);
     const draftEntry = result.courses.find((x) => x.id === draft.id)!;

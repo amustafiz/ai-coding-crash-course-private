@@ -181,6 +181,7 @@ describe("getCourseAnalytics", () => {
       grossRevenue: 0,
       completionRate: null,
       averageProgress: null,
+      quizzes: [],
     });
   });
 
