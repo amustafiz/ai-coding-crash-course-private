@@ -14,6 +14,21 @@ export function formatPrice(cents: number | null | undefined): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+/** Integer cents as US dollars, dropping ".00" on whole amounts: "$1,250", "$49.99". */
+export function formatDollars(cents: number): string {
+  return (cents / 100).toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+/** A 0–1 rate as a whole percentage, or "—" when there's nothing to calculate. */
+export function formatRate(rate: number | null): string {
+  return rate === null ? "—" : `${Math.round(rate * 100)}%`;
+}
+
 /** Whole days between an ISO timestamp and now. Negative values clamp to 0. */
 export function daysSince(iso: string): number {
   const elapsed = Date.now() - new Date(iso).getTime();

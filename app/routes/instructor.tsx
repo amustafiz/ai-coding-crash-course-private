@@ -19,6 +19,7 @@ import {
 import { CourseImage } from "~/components/course-image";
 import { data, isRouteErrorResponse } from "react-router";
 import { CourseStatus, UserRole } from "~/db/schema";
+import { formatDollars, formatRate } from "~/lib/utils";
 
 export function meta() {
   return [
@@ -45,19 +46,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   return getInstructorAnalytics(currentUserId);
-}
-
-function formatDollars(cents: number) {
-  return (cents / 100).toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-function formatRate(rate: number | null) {
-  return rate === null ? "—" : `${Math.round(rate * 100)}%`;
 }
 
 function SummaryCard({
@@ -270,13 +258,24 @@ export default function InstructorDashboard({
                   </div>
                 )}
               </CardContent>
-              <CardFooter>
-                <Link to={`/instructor/${course.id}`} className="w-full">
+              <CardFooter className="gap-2">
+                <Link to={`/instructor/${course.id}`} className="flex-1">
                   <Button className="w-full" variant="outline">
                     <BookOpen className="mr-2 size-4" />
                     Edit Course
                   </Button>
                 </Link>
+                {course.status !== CourseStatus.Draft && (
+                  <Link
+                    to={`/instructor/${course.id}/analytics`}
+                    className="flex-1"
+                  >
+                    <Button className="w-full" variant="outline">
+                      <BarChart3 className="mr-2 size-4" />
+                      Analytics
+                    </Button>
+                  </Link>
+                )}
               </CardFooter>
             </Card>
           ))}
