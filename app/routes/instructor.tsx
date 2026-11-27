@@ -1,8 +1,7 @@
 import { Link } from "react-router";
 import type { Route } from "./+types/instructor";
 import { getInstructorAnalytics } from "~/services/analyticsService";
-import { getCurrentUserId } from "~/lib/session";
-import { getUserById } from "~/services/userService";
+import { requireInstructorOrAdmin } from "~/lib/access.server";
 import { Card, CardContent, CardFooter, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -19,9 +18,11 @@ import {
 } from "lucide-react";
 import { CourseImage } from "~/components/course-image";
 import { data, isRouteErrorResponse } from "react-router";
-import { CourseStatus, UserRole } from "~/db/schema";
-import { formatDollars, formatRate } from "~/lib/utils";
-import { parseRange, RangeToggle } from "~/components/range-toggle";
+import { CourseStatus } from "~/db/schema";
+import { formatCount, formatDollars, formatRate } from "~/lib/utils";
+import { isActiveCourse, parseRange } from "~/lib/analytics";
+import { RangeToggle } from "~/components/range-toggle";
+import { MetricCard } from "~/components/metric-card";
 
 export function meta() {
   return [
@@ -31,48 +32,13 @@ export function meta() {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const currentUserId = await getCurrentUserId(request);
-
-  if (!currentUserId) {
-    throw data("Select a user from the DevUI panel to view your courses.", {
-      status: 401,
-    });
-  }
-
-  const user = getUserById(currentUserId);
-
-  if (!user || user.role !== UserRole.Instructor) {
-    throw data("Only instructors can access this page.", {
-      status: 403,
-    });
+  const { userId, isAdmin } = await requireInstructorOrAdmin(request);
+  if (isAdmin) {
+    throw data("Only instructors can access this page.", { status: 403 });
   }
 
   const range = parseRange(request);
-  return { range, ...getInstructorAnalytics(currentUserId, range) };
-}
-
-function SummaryCard({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: string;
-  icon: React.ReactNode;
-}) {
-  return (
-    <Card className="gap-2 py-4">
-      <CardContent className="flex items-center gap-3">
-        <div className="rounded-md bg-muted p-2 text-muted-foreground">
-          {icon}
-        </div>
-        <div>
-          <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="text-2xl font-semibold">{value}</p>
-        </div>
-      </CardContent>
-    </Card>
-  );
+  return { range, ...getInstructorAnalytics(userId, range) };
 }
 
 function statusBadge(status: string) {
@@ -173,22 +139,22 @@ export default function InstructorDashboard({
 
       {state === "ready" && (
         <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <SummaryCard
+          <MetricCard
             label="Students"
-            value={summary.studentCount.toLocaleString("en-US")}
+            value={formatCount(summary.studentCount)}
             icon={<Users className="size-5" />}
           />
-          <SummaryCard
+          <MetricCard
             label="Gross revenue"
             value={formatDollars(summary.grossRevenue)}
             icon={<DollarSign className="size-5" />}
           />
-          <SummaryCard
+          <MetricCard
             label="Completion rate (all-time)"
             value={formatRate(summary.completionRate)}
             icon={<CheckCircle2 className="size-5" />}
           />
-          <SummaryCard
+          <MetricCard
             label="Average quiz score (all-time)"
             value={formatRate(summary.averageQuizScore)}
             icon={<ClipboardCheck className="size-5" />}
@@ -259,7 +225,7 @@ export default function InstructorDashboard({
                     </span>
                   </div>
                 </div>
-                {course.status !== CourseStatus.Draft && (
+                {isActiveCourse(course) && (
                   <div className="mt-2 flex items-center gap-4 text-sm text-muted-foreground">
                     <div className="flex items-center gap-1.5">
                       <DollarSign className="size-4" />
@@ -282,7 +248,7 @@ export default function InstructorDashboard({
                     Edit Course
                   </Button>
                 </Link>
-                {course.status !== CourseStatus.Draft && (
+                {isActiveCourse(course) && (
                   <Link
                     to={`/instructor/${course.id}/analytics`}
                     className="flex-1"

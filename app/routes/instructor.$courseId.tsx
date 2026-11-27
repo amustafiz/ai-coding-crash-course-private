@@ -40,6 +40,7 @@ import { getCurrentUserId } from "~/lib/session";
 import { getUserById } from "~/services/userService";
 import { CourseStatus, UserRole } from "~/db/schema";
 import { formatDuration, formatPrice } from "~/lib/utils";
+import { isActiveCourse } from "~/lib/analytics";
 import { MonacoMarkdownEditor } from "~/components/monaco-markdown-editor";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
@@ -1173,7 +1174,7 @@ export default function InstructorCourseEditor({
           <span className="text-xs text-muted-foreground">
             Slug: /courses/{course.slug}
           </span>
-          {course.status !== CourseStatus.Draft && (
+          {isActiveCourse(course) && (
             <Link
               to={`/instructor/${course.id}/analytics`}
               className="flex items-center gap-1.5 hover:text-foreground"

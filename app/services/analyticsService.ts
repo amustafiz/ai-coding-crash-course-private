@@ -1,4 +1,5 @@
 import { and, asc, eq, gte, inArray, ne, sql, type SQL } from "drizzle-orm";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { db } from "~/db";
 import {
   CourseStatus,
@@ -12,9 +13,11 @@ import {
   quizAttempts,
   quizzes,
 } from "~/db/schema";
-
-/** `"30d"` = rolling window: timestamps `>= now - 30 × 24h`. */
-export type AnalyticsRange = "all" | "30d";
+import {
+  isActiveCourse,
+  type ActiveCourseStatus,
+  type AnalyticsRange,
+} from "~/lib/analytics";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -25,25 +28,32 @@ function rangeCutoff(range: AnalyticsRange): string | null {
     : null;
 }
 
+/** Filter on `column >= cutoff`, or no filter for all time. */
+function onOrAfter(column: SQLiteColumn, cutoff: string | null) {
+  return cutoff ? gte(column, cutoff) : undefined;
+}
+
 export type InstructorAnalyticsState = "no-courses" | "drafts-only" | "ready";
 
-type CourseBase = {
+type CourseCardFields = {
   id: number;
   title: string;
   slug: string;
   description: string;
   coverImageUrl: string | null;
   lessonCount: number;
-  /** Enrollments within the selected range. */
+};
+
+export type DraftCourseAnalytics = CourseCardFields & {
+  status: CourseStatus.Draft;
+  /** All-time enrollments — drafts ignore the range. */
   studentCount: number;
 };
 
-export type DraftCourseAnalytics = CourseBase & {
-  status: CourseStatus.Draft;
-};
-
-export type ActiveCourseAnalytics = CourseBase & {
-  status: CourseStatus.Published | CourseStatus.Archived;
+export type ActiveCourseAnalytics = CourseCardFields & {
+  status: ActiveCourseStatus;
+  /** Enrollments within the selected range. */
+  studentCount: number;
   /** Integer cents, purchases within the selected range. */
   grossRevenue: number;
   /** All-time, 0–1, or null when there are no enrollments. */
@@ -72,8 +82,77 @@ export type InstructorAnalytics = {
   courses: CourseAnalytics[];
 };
 
-function rate(completed: number, total: number): number | null {
-  return total === 0 ? null : completed / total;
+/** `part / whole`, or null when `whole` is 0 (nothing to measure). */
+function ratioOrNull(part: number, whole: number): number | null {
+  return whole === 0 ? null : part / whole;
+}
+
+/** Lesson count per course, for courses matching `where` (over courses/modules). */
+function getLessonCountsByCourse(where: SQL): Map<number, number> {
+  return new Map(
+    db
+      .select({ courseId: modules.courseId, count: sql<number>`count(*)` })
+      .from(lessons)
+      .innerJoin(modules, eq(lessons.moduleId, modules.id))
+      .innerJoin(courses, eq(modules.courseId, courses.id))
+      .where(where)
+      .groupBy(modules.courseId)
+      .all()
+      .map((row) => [row.courseId, row.count])
+  );
+}
+
+type EnrollmentTotals = {
+  /** All-time enrollments. */
+  total: number;
+  /** All-time enrollments with `completedAt` set. */
+  completed: number;
+  /** Enrollments on or after the cutoff (all of them with no cutoff). */
+  inRange: number;
+};
+
+/** Enrollment totals per course, for courses matching `where` (over courses/enrollments). */
+function getEnrollmentTotalsByCourse(
+  where: SQL,
+  cutoff: string | null
+): Map<number, EnrollmentTotals> {
+  return new Map(
+    db
+      .select({
+        courseId: enrollments.courseId,
+        total: sql<number>`count(*)`,
+        completed: sql<number>`count(${enrollments.completedAt})`,
+        inRange: cutoff
+          ? sql<number>`count(case when ${enrollments.enrolledAt} >= ${cutoff} then 1 end)`
+          : sql<number>`count(*)`,
+      })
+      .from(enrollments)
+      .innerJoin(courses, eq(enrollments.courseId, courses.id))
+      .where(where)
+      .groupBy(enrollments.courseId)
+      .all()
+      .map(({ courseId, ...totals }) => [courseId, totals])
+  );
+}
+
+/** Integer cents per course from purchases on or after the cutoff, for courses matching `where`. */
+function getRevenueByCourse(
+  where: SQL,
+  cutoff: string | null
+): Map<number, number> {
+  return new Map(
+    db
+      .select({
+        courseId: purchases.courseId,
+        total: sql<number>`sum(${purchases.amountPaid})`,
+      })
+      .from(purchases)
+      .innerJoin(courses, eq(purchases.courseId, courses.id))
+      .where(and(where, onOrAfter(purchases.createdAt, cutoff)))
+      .groupBy(purchases.courseId)
+      .all()
+      .map((row) => [row.courseId, row.total])
+  );
 }
 
 type QuizStats = {
@@ -136,17 +215,19 @@ function getQuizStats(where: SQL | undefined): QuizStats[] {
     quizRows.map((q) => [q.id, { ...q, bestScores: [], attemptCount: 0 }])
   );
   for (const row of perStudent) {
-    const s = stats.get(row.quizId)!;
-    s.bestScores.push(row.best);
-    s.attemptCount += row.attempts;
+    const quizStats = stats.get(row.quizId)!;
+    quizStats.bestScores.push(row.best);
+    quizStats.attemptCount += row.attempts;
   }
   return [...stats.values()];
 }
 
+function sum(values: number[]): number {
+  return values.reduce((a, b) => a + b, 0);
+}
+
 function mean(values: number[]): number | null {
-  return values.length === 0
-    ? null
-    : values.reduce((a, b) => a + b, 0) / values.length;
+  return values.length === 0 ? null : sum(values) / values.length;
 }
 
 export function getInstructorAnalytics(
@@ -154,128 +235,72 @@ export function getInstructorAnalytics(
   range: AnalyticsRange
 ): InstructorAnalytics {
   const cutoff = rangeCutoff(range);
+  const ownedByInstructor = eq(courses.instructorId, instructorId);
   const instructorCourses = db
     .select()
     .from(courses)
-    .where(eq(courses.instructorId, instructorId))
+    .where(ownedByInstructor)
     .all();
 
-  const lessonCounts = new Map(
-    db
-      .select({ courseId: modules.courseId, count: sql<number>`count(*)` })
-      .from(lessons)
-      .innerJoin(modules, eq(lessons.moduleId, modules.id))
-      .innerJoin(courses, eq(modules.courseId, courses.id))
-      .where(eq(courses.instructorId, instructorId))
-      .groupBy(modules.courseId)
-      .all()
-      .map((row) => [row.courseId, row.count])
+  const lessonCounts = getLessonCountsByCourse(ownedByInstructor);
+  const enrollmentTotals = getEnrollmentTotalsByCourse(
+    ownedByInstructor,
+    cutoff
   );
-
-  const enrollmentStats = new Map(
-    db
-      .select({
-        courseId: enrollments.courseId,
-        // All-time, for completion rate.
-        count: sql<number>`count(*)`,
-        completed: sql<number>`count(${enrollments.completedAt})`,
-        inRange: cutoff
-          ? sql<number>`count(case when ${enrollments.enrolledAt} >= ${cutoff} then 1 end)`
-          : sql<number>`count(*)`,
-      })
-      .from(enrollments)
-      .innerJoin(courses, eq(enrollments.courseId, courses.id))
-      .where(eq(courses.instructorId, instructorId))
-      .groupBy(enrollments.courseId)
-      .all()
-      .map((row) => [row.courseId, row])
-  );
-
-  const revenueByCourse = new Map(
-    db
-      .select({
-        courseId: purchases.courseId,
-        total: sql<number>`sum(${purchases.amountPaid})`,
-      })
-      .from(purchases)
-      .innerJoin(courses, eq(purchases.courseId, courses.id))
-      .where(
-        and(
-          eq(courses.instructorId, instructorId),
-          cutoff ? gte(purchases.createdAt, cutoff) : undefined
-        )
-      )
-      .groupBy(purchases.courseId)
-      .all()
-      .map((row) => [row.courseId, row.total])
-  );
-
-  const summary = {
-    studentCount: 0,
-    grossRevenue: 0,
-    completionRate: null as number | null,
-  };
-  let summaryCompleted = 0;
-  let summaryAllTimeStudents = 0;
+  const revenueByCourse = getRevenueByCourse(ownedByInstructor, cutoff);
 
   const courseEntries: CourseAnalytics[] = instructorCourses.map((course) => {
-    const stats = enrollmentStats.get(course.id);
-    const base: CourseBase = {
+    const totals = enrollmentTotals.get(course.id);
+    const cardFields: CourseCardFields = {
       id: course.id,
       title: course.title,
       slug: course.slug,
       description: course.description,
       coverImageUrl: course.coverImageUrl,
       lessonCount: lessonCounts.get(course.id) ?? 0,
-      studentCount: stats?.inRange ?? 0,
     };
 
-    if (course.status === CourseStatus.Draft) {
+    if (!isActiveCourse(course)) {
       return {
-        ...base,
-        studentCount: stats?.count ?? 0,
-        status: course.status,
+        ...cardFields,
+        status: CourseStatus.Draft,
+        studentCount: totals?.total ?? 0,
       };
     }
 
-    const completed = stats?.completed ?? 0;
-    const allTimeStudents = stats?.count ?? 0;
-    const grossRevenue = revenueByCourse.get(course.id) ?? 0;
-    summary.studentCount += base.studentCount;
-    summary.grossRevenue += grossRevenue;
-    summaryCompleted += completed;
-    summaryAllTimeStudents += allTimeStudents;
-
     return {
-      ...base,
+      ...cardFields,
       status: course.status,
-      grossRevenue,
-      completionRate: rate(completed, allTimeStudents),
+      studentCount: totals?.inRange ?? 0,
+      grossRevenue: revenueByCourse.get(course.id) ?? 0,
+      completionRate: ratioOrNull(totals?.completed ?? 0, totals?.total ?? 0),
     };
   });
-  summary.completionRate = rate(summaryCompleted, summaryAllTimeStudents);
 
-  const averageQuizScore = mean(
-    getQuizStats(
-      and(
-        eq(courses.instructorId, instructorId),
-        ne(courses.status, CourseStatus.Draft)
-      )
-    ).flatMap((q) => q.bestScores)
-  );
+  const activeEntries = courseEntries.filter(isActiveCourse);
+  const activeTotals = activeEntries.map((c) => enrollmentTotals.get(c.id));
+  const summary = {
+    studentCount: sum(activeEntries.map((c) => c.studentCount)),
+    grossRevenue: sum(activeEntries.map((c) => c.grossRevenue)),
+    completionRate: ratioOrNull(
+      sum(activeTotals.map((t) => t?.completed ?? 0)),
+      sum(activeTotals.map((t) => t?.total ?? 0))
+    ),
+    averageQuizScore: mean(
+      getQuizStats(
+        and(ownedByInstructor, ne(courses.status, CourseStatus.Draft))
+      ).flatMap((q) => q.bestScores)
+    ),
+  };
 
   const state: InstructorAnalyticsState =
     instructorCourses.length === 0
       ? "no-courses"
-      : instructorCourses.every((c) => c.status === CourseStatus.Draft)
+      : activeEntries.length === 0
         ? "drafts-only"
         : "ready";
 
-  return {
-    state,
-    summary: { ...summary, averageQuizScore },
-    courses: courseEntries,
-  };
+  return { state, summary, courses: courseEntries };
 }
 
 /** Students and revenue follow the range; everything else is all-time. */
@@ -316,9 +341,10 @@ export function getCourseAnalytics(
   range: AnalyticsRange
 ): CourseAnalyticsDetail {
   const cutoff = rangeCutoff(range);
+  const isThisCourse = eq(courses.id, courseId);
 
   // Students in range, split by whether they have a purchase for this course.
-  const students = db
+  const studentsInRange = db
     .select({
       count: sql<number>`count(distinct ${enrollments.id})`,
       paid: sql<number>`count(distinct ${purchases.userId})`,
@@ -334,39 +360,16 @@ export function getCourseAnalytics(
     .where(
       and(
         eq(enrollments.courseId, courseId),
-        cutoff ? gte(enrollments.enrolledAt, cutoff) : undefined
+        onOrAfter(enrollments.enrolledAt, cutoff)
       )
     )
     .get();
 
   // Completion and progress are always all-time.
-  const allTime = db
-    .select({
-      count: sql<number>`count(*)`,
-      completed: sql<number>`count(${enrollments.completedAt})`,
-    })
-    .from(enrollments)
-    .where(eq(enrollments.courseId, courseId))
-    .get();
-
-  const revenue = db
-    .select({ total: sql<number>`coalesce(sum(${purchases.amountPaid}), 0)` })
-    .from(purchases)
-    .where(
-      and(
-        eq(purchases.courseId, courseId),
-        cutoff ? gte(purchases.createdAt, cutoff) : undefined
-      )
-    )
-    .get();
-
-  const lessonCount =
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(lessons)
-      .innerJoin(modules, eq(lessons.moduleId, modules.id))
-      .where(eq(modules.courseId, courseId))
-      .get()?.count ?? 0;
+  const allTime = getEnrollmentTotalsByCourse(isThisCourse, null).get(courseId);
+  const grossRevenue =
+    getRevenueByCourse(isThisCourse, cutoff).get(courseId) ?? 0;
+  const lessonCount = getLessonCountsByCourse(isThisCourse).get(courseId) ?? 0;
 
   // Completed (student, lesson) pairs, counting only enrolled students.
   const completedLessons =
@@ -392,23 +395,26 @@ export function getCourseAnalytics(
       )
       .get()?.count ?? 0;
 
-  const studentCount = students?.count ?? 0;
-  const paidStudentCount = students?.paid ?? 0;
-  const allTimeStudents = allTime?.count ?? 0;
+  const studentCount = studentsInRange?.count ?? 0;
+  const paidStudentCount = studentsInRange?.paid ?? 0;
+  const allTimeStudents = allTime?.total ?? 0;
 
   return {
     studentCount,
     paidStudentCount,
     teamSeatStudentCount: studentCount - paidStudentCount,
-    grossRevenue: revenue?.total ?? 0,
-    completionRate: rate(allTime?.completed ?? 0, allTimeStudents),
-    averageProgress: rate(completedLessons, allTimeStudents * lessonCount),
+    grossRevenue,
+    completionRate: ratioOrNull(allTime?.completed ?? 0, allTimeStudents),
+    averageProgress: ratioOrNull(
+      completedLessons,
+      allTimeStudents * lessonCount
+    ),
     quizzes: getQuizStats(eq(modules.courseId, courseId)).map((q) => ({
       id: q.id,
       title: q.title,
       passingScore: q.passingScore,
       averageScore: mean(q.bestScores),
-      passRate: rate(
+      passRate: ratioOrNull(
         q.bestScores.filter((score) => score >= q.passingScore).length,
         q.bestScores.length
       ),

@@ -24,6 +24,11 @@ export function formatDollars(cents: number): string {
   });
 }
 
+/** A whole-number count with thousands separators: "1,250". */
+export function formatCount(count: number): string {
+  return count.toLocaleString("en-US");
+}
+
 /** A 0–1 rate as a whole percentage, or "—" when there's nothing to calculate. */
 export function formatRate(rate: number | null): string {
   return rate === null ? "—" : `${Math.round(rate * 100)}%`;

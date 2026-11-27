@@ -3,8 +3,10 @@ import type { Route } from "./+types/instructor.$courseId.analytics";
 import { requireStaff } from "~/lib/access.server";
 import { getCourseById } from "~/services/courseService";
 import { getCourseAnalytics } from "~/services/analyticsService";
-import { formatDollars, formatRate } from "~/lib/utils";
-import { parseRange, RangeToggle } from "~/components/range-toggle";
+import { formatCount, formatDollars, formatRate } from "~/lib/utils";
+import { parseRange } from "~/lib/analytics";
+import { RangeToggle } from "~/components/range-toggle";
+import { MetricCard } from "~/components/metric-card";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import {
@@ -45,33 +47,6 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   };
 }
 
-function MetricCard({
-  label,
-  value,
-  detail,
-  icon,
-}: {
-  label: string;
-  value: string;
-  detail?: string;
-  icon: React.ReactNode;
-}) {
-  return (
-    <Card className="gap-2 py-4">
-      <CardContent className="flex items-center gap-3">
-        <div className="rounded-md bg-muted p-2 text-muted-foreground">
-          {icon}
-        </div>
-        <div>
-          <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="text-2xl font-semibold">{value}</p>
-          {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 export default function CourseAnalyticsPage({
   loaderData,
 }: Route.ComponentProps) {
@@ -110,8 +85,8 @@ export default function CourseAnalyticsPage({
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           label="Students"
-          value={analytics.studentCount.toLocaleString("en-US")}
-          detail={`${analytics.paidStudentCount.toLocaleString("en-US")} paid · ${analytics.teamSeatStudentCount.toLocaleString("en-US")} team-seat`}
+          value={formatCount(analytics.studentCount)}
+          detail={`${formatCount(analytics.paidStudentCount)} paid · ${formatCount(analytics.teamSeatStudentCount)} team-seat`}
           icon={<Users className="size-5" />}
         />
         <MetricCard
@@ -176,7 +151,7 @@ export default function CourseAnalyticsPage({
                         {formatRate(quiz.passRate)}
                       </td>
                       <td className="py-2 text-right tabular-nums">
-                        {quiz.attemptCount.toLocaleString("en-US")}
+                        {formatCount(quiz.attemptCount)}
                       </td>
                     </tr>
                   ))}

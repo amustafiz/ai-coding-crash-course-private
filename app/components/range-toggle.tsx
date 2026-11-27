@@ -1,13 +1,6 @@
 import { Link, useSearchParams } from "react-router";
-import type { AnalyticsRange } from "~/services/analyticsService";
+import type { AnalyticsRange } from "~/lib/analytics";
 import { cn } from "~/lib/utils";
-
-/** Reads `?range=30d` from a request URL; anything else means all time. */
-export function parseRange(request: Request): AnalyticsRange {
-  return new URL(request.url).searchParams.get("range") === "30d"
-    ? "30d"
-    : "all";
-}
 
 const OPTIONS: { value: AnalyticsRange; label: string }[] = [
   { value: "all", label: "All time" },
