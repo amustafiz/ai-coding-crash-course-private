@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
+import { createAnalyticsFixtures } from "~/test/analyticsFixtures";
 
 let testDb: ReturnType<typeof createTestDb>;
 let base: ReturnType<typeof seedBaseData>;
+let fx: ReturnType<typeof createAnalyticsFixtures>;
 
 vi.mock("~/db", () => ({
   get db() {
@@ -13,98 +15,15 @@ vi.mock("~/db", () => ({
 
 import { getInstructorAnalytics } from "./analyticsService";
 
-let counter = 0;
-
-function addInstructor() {
-  counter++;
-  return testDb
-    .insert(schema.users)
-    .values({
-      name: `Instructor ${counter}`,
-      email: `instructor${counter}@example.com`,
-      role: schema.UserRole.Instructor,
-    })
-    .returning()
-    .get();
-}
-
-function addStudent() {
-  counter++;
-  return testDb
-    .insert(schema.users)
-    .values({
-      name: `Student ${counter}`,
-      email: `student${counter}@example.com`,
-      role: schema.UserRole.Student,
-    })
-    .returning()
-    .get();
-}
-
-function addCourse(
-  instructorId: number,
-  status: schema.CourseStatus = schema.CourseStatus.Published,
-  price = 0
-) {
-  counter++;
-  return testDb
-    .insert(schema.courses)
-    .values({
-      title: `Course ${counter}`,
-      slug: `course-${counter}`,
-      description: "d",
-      salesCopy: "s",
-      instructorId,
-      categoryId: base.category.id,
-      status,
-      price,
-    })
-    .returning()
-    .get();
-}
-
-function addEnrollment(
-  userId: number,
-  courseId: number,
-  completedAt: string | null = null
-) {
-  return testDb
-    .insert(schema.enrollments)
-    .values({ userId, courseId, completedAt })
-    .returning()
-    .get();
-}
-
-function addPurchase(userId: number, courseId: number, amountPaid: number) {
-  return testDb
-    .insert(schema.purchases)
-    .values({ userId, courseId, amountPaid, country: null })
-    .returning()
-    .get();
-}
-
-function addLessons(courseId: number, count: number) {
-  const mod = testDb
-    .insert(schema.modules)
-    .values({ courseId, title: "Module", position: 1 })
-    .returning()
-    .get();
-  for (let i = 0; i < count; i++) {
-    testDb
-      .insert(schema.lessons)
-      .values({ moduleId: mod.id, title: `Lesson ${i}`, position: i + 1 })
-      .run();
-  }
-}
-
 describe("getInstructorAnalytics (dashboard)", () => {
   beforeEach(() => {
     testDb = createTestDb();
     base = seedBaseData(testDb);
+    fx = createAnalyticsFixtures(testDb, base);
   });
 
   it("reports the no-courses state for an instructor without courses", () => {
-    const instructor = addInstructor();
+    const instructor = fx.addInstructor();
 
     const result = getInstructorAnalytics(instructor.id, "all");
 
@@ -113,9 +32,12 @@ describe("getInstructorAnalytics (dashboard)", () => {
   });
 
   it("reports the drafts-only state and still lists the draft courses", () => {
-    const instructor = addInstructor();
-    const draft = addCourse(instructor.id, schema.CourseStatus.Draft);
-    addEnrollment(addStudent().id, draft.id);
+    const instructor = fx.addInstructor();
+    const draft = fx.addCourse({
+      instructorId: instructor.id,
+      status: schema.CourseStatus.Draft,
+    });
+    fx.addEnrollment(fx.addStudent().id, draft.id);
 
     const result = getInstructorAnalytics(instructor.id, "all");
 
@@ -130,9 +52,9 @@ describe("getInstructorAnalytics (dashboard)", () => {
   });
 
   it("reports the ready state for a published course with no students, with zero counts and null rates", () => {
-    const instructor = addInstructor();
-    const course = addCourse(instructor.id);
-    addLessons(course.id, 3);
+    const instructor = fx.addInstructor();
+    const course = fx.addCourse({ instructorId: instructor.id });
+    fx.addLessons(course.id, 3);
 
     const result = getInstructorAnalytics(instructor.id, "all");
 
@@ -156,12 +78,14 @@ describe("getInstructorAnalytics (dashboard)", () => {
 
   it("never includes another instructor's courses, students or revenue", () => {
     // base.course belongs to base.instructor
-    const student = addStudent();
-    addEnrollment(student.id, base.course.id, "2026-01-01T00:00:00.000Z");
-    addPurchase(student.id, base.course.id, 4999);
+    const student = fx.addStudent();
+    fx.addEnrollment(student.id, base.course.id, {
+      completedAt: "2026-01-01T00:00:00.000Z",
+    });
+    fx.addPurchase(student.id, base.course.id, 4999);
 
-    const instructor = addInstructor();
-    const mine = addCourse(instructor.id);
+    const instructor = fx.addInstructor();
+    const mine = fx.addCourse({ instructorId: instructor.id });
 
     const result = getInstructorAnalytics(instructor.id, "all");
 
@@ -175,20 +99,30 @@ describe("getInstructorAnalytics (dashboard)", () => {
   });
 
   it("excludes drafts from the totals but keeps them in the course list", () => {
-    const instructor = addInstructor();
-    const published = addCourse(instructor.id);
-    const archived = addCourse(instructor.id, schema.CourseStatus.Archived);
-    const draft = addCourse(instructor.id, schema.CourseStatus.Draft);
+    const instructor = fx.addInstructor();
+    const published = fx.addCourse({ instructorId: instructor.id });
+    const archived = fx.addCourse({
+      instructorId: instructor.id,
+      status: schema.CourseStatus.Archived,
+    });
+    const draft = fx.addCourse({
+      instructorId: instructor.id,
+      status: schema.CourseStatus.Draft,
+    });
 
-    const a = addStudent();
-    const b = addStudent();
-    const c = addStudent();
-    addEnrollment(a.id, published.id, "2026-01-01T00:00:00.000Z");
-    addPurchase(a.id, published.id, 1000);
-    addEnrollment(b.id, archived.id);
-    addPurchase(b.id, archived.id, 2000);
-    addEnrollment(c.id, draft.id, "2026-01-01T00:00:00.000Z");
-    addPurchase(c.id, draft.id, 50000);
+    const a = fx.addStudent();
+    const b = fx.addStudent();
+    const c = fx.addStudent();
+    fx.addEnrollment(a.id, published.id, {
+      completedAt: "2026-01-01T00:00:00.000Z",
+    });
+    fx.addPurchase(a.id, published.id, 1000);
+    fx.addEnrollment(b.id, archived.id);
+    fx.addPurchase(b.id, archived.id, 2000);
+    fx.addEnrollment(c.id, draft.id, {
+      completedAt: "2026-01-01T00:00:00.000Z",
+    });
+    fx.addPurchase(c.id, draft.id, 50000);
 
     const result = getInstructorAnalytics(instructor.id, "all");
 
@@ -211,11 +145,11 @@ describe("getInstructorAnalytics (dashboard)", () => {
   });
 
   it("counts a team purchase in full", () => {
-    const instructor = addInstructor();
-    const course = addCourse(instructor.id);
-    const buyer = addStudent();
+    const instructor = fx.addInstructor();
+    const course = fx.addCourse({ instructorId: instructor.id });
+    const buyer = fx.addStudent();
     // One purchase row for 5 seats at $49.99
-    addPurchase(buyer.id, course.id, 24995);
+    fx.addPurchase(buyer.id, course.id, 24995);
 
     const result = getInstructorAnalytics(instructor.id, "all");
 
@@ -224,15 +158,15 @@ describe("getInstructorAnalytics (dashboard)", () => {
   });
 
   it("counts a regional-price purchase at the amount actually paid", () => {
-    const instructor = addInstructor();
-    const course = addCourse(
-      instructor.id,
-      schema.CourseStatus.Published,
-      4999
-    );
+    const instructor = fx.addInstructor();
+    const course = fx.addCourse({
+      instructorId: instructor.id,
+      status: schema.CourseStatus.Published,
+      price: 4999,
+    });
     // Full price, and a purchasing-power-adjusted price
-    addPurchase(addStudent().id, course.id, 4999);
-    addPurchase(addStudent().id, course.id, 1500);
+    fx.addPurchase(fx.addStudent().id, course.id, 4999);
+    fx.addPurchase(fx.addStudent().id, course.id, 1500);
 
     const result = getInstructorAnalytics(instructor.id, "all");
 
@@ -241,17 +175,17 @@ describe("getInstructorAnalytics (dashboard)", () => {
   });
 
   it("pools the summary completion rate across enrollments instead of averaging course rates", () => {
-    const instructor = addInstructor();
-    const big = addCourse(instructor.id);
-    const small = addCourse(instructor.id);
+    const instructor = fx.addInstructor();
+    const big = fx.addCourse({ instructorId: instructor.id });
+    const small = fx.addCourse({ instructorId: instructor.id });
     const done = "2026-01-01T00:00:00.000Z";
 
     // big: 1 of 4 completed (25%); small: 1 of 1 completed (100%)
-    addEnrollment(addStudent().id, big.id, done);
-    addEnrollment(addStudent().id, big.id);
-    addEnrollment(addStudent().id, big.id);
-    addEnrollment(addStudent().id, big.id);
-    addEnrollment(addStudent().id, small.id, done);
+    fx.addEnrollment(fx.addStudent().id, big.id, { completedAt: done });
+    fx.addEnrollment(fx.addStudent().id, big.id);
+    fx.addEnrollment(fx.addStudent().id, big.id);
+    fx.addEnrollment(fx.addStudent().id, big.id);
+    fx.addEnrollment(fx.addStudent().id, small.id, { completedAt: done });
 
     const result = getInstructorAnalytics(instructor.id, "all");
 

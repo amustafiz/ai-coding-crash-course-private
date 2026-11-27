@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { createAnalyticsFixtures } from "~/test/analyticsFixtures";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
 
 let testDb: ReturnType<typeof createTestDb>;
 let base: ReturnType<typeof seedBaseData>;
+let fx: ReturnType<typeof createAnalyticsFixtures>;
 
 vi.mock("~/db", () => ({
   get db() {
@@ -13,109 +15,31 @@ vi.mock("~/db", () => ({
 
 import { getCourseAnalytics } from "./analyticsService";
 
-let counter = 0;
-
-function addStudent() {
-  counter++;
-  return testDb
-    .insert(schema.users)
-    .values({
-      name: `Student ${counter}`,
-      email: `student${counter}@example.com`,
-      role: schema.UserRole.Student,
-    })
-    .returning()
-    .get();
-}
-
-function addCourse() {
-  counter++;
-  return testDb
-    .insert(schema.courses)
-    .values({
-      title: `Course ${counter}`,
-      slug: `course-${counter}`,
-      description: "d",
-      salesCopy: "s",
-      instructorId: base.instructor.id,
-      categoryId: base.category.id,
-      status: schema.CourseStatus.Published,
-    })
-    .returning()
-    .get();
-}
-
-function addEnrollment(
-  userId: number,
-  courseId: number,
-  completedAt: string | null = null
-) {
-  return testDb
-    .insert(schema.enrollments)
-    .values({ userId, courseId, completedAt })
-    .returning()
-    .get();
-}
-
-function addPurchase(userId: number, courseId: number, amountPaid: number) {
-  return testDb
-    .insert(schema.purchases)
-    .values({ userId, courseId, amountPaid, country: null })
-    .returning()
-    .get();
-}
-
-function addLessons(courseId: number, count: number) {
-  const mod = testDb
-    .insert(schema.modules)
-    .values({ courseId, title: "Module", position: 1 })
-    .returning()
-    .get();
-  return Array.from({ length: count }, (_, i) =>
-    testDb
-      .insert(schema.lessons)
-      .values({ moduleId: mod.id, title: `Lesson ${i}`, position: i + 1 })
-      .returning()
-      .get()
-  );
-}
-
-function completeLesson(userId: number, lessonId: number) {
-  testDb
-    .insert(schema.lessonProgress)
-    .values({
-      userId,
-      lessonId,
-      status: schema.LessonProgressStatus.Completed,
-      completedAt: "2026-01-01T00:00:00.000Z",
-    })
-    .run();
-}
-
 describe("getCourseAnalytics", () => {
   beforeEach(() => {
     testDb = createTestDb();
     base = seedBaseData(testDb);
+    fx = createAnalyticsFixtures(testDb, base);
   });
 
   it("splits students into paid and team-seat, counting a team purchase in full", () => {
-    const course = addCourse();
-    const soloBuyer = addStudent();
-    const teamBuyer = addStudent();
-    const seatHolder1 = addStudent();
-    const seatHolder2 = addStudent();
+    const course = fx.addCourse();
+    const soloBuyer = fx.addStudent();
+    const teamBuyer = fx.addStudent();
+    const seatHolder1 = fx.addStudent();
+    const seatHolder2 = fx.addStudent();
 
-    addPurchase(soloBuyer.id, course.id, 4999);
-    addEnrollment(soloBuyer.id, course.id);
+    fx.addPurchase(soloBuyer.id, course.id, 4999);
+    fx.addEnrollment(soloBuyer.id, course.id);
     // Team buyer bought 3 seats: took one, two more redeemed via coupons
-    addPurchase(teamBuyer.id, course.id, 14997);
-    addEnrollment(teamBuyer.id, course.id);
-    addEnrollment(seatHolder1.id, course.id);
-    addEnrollment(seatHolder2.id, course.id);
+    fx.addPurchase(teamBuyer.id, course.id, 14997);
+    fx.addEnrollment(teamBuyer.id, course.id);
+    fx.addEnrollment(seatHolder1.id, course.id);
+    fx.addEnrollment(seatHolder2.id, course.id);
 
     // A purchase of a different course doesn't make someone "paid" here
-    const other = addCourse();
-    addPurchase(seatHolder1.id, other.id, 1000);
+    const other = fx.addCourse();
+    fx.addPurchase(seatHolder1.id, other.id, 1000);
 
     const result = getCourseAnalytics(course.id, "all");
 
@@ -128,24 +52,24 @@ describe("getCourseAnalytics", () => {
   });
 
   it("reports completion rate and average progress independently", () => {
-    const course = addCourse();
-    const lessons = addLessons(course.id, 4);
+    const course = fx.addCourse();
+    const lessons = fx.addLessons(course.id, 4);
     const done = "2026-01-01T00:00:00.000Z";
 
     // Finished: all 4 lessons, completed timestamp set
-    const finisher = addStudent();
-    addEnrollment(finisher.id, course.id, done);
-    lessons.forEach((l) => completeLesson(finisher.id, l.id));
+    const finisher = fx.addStudent();
+    fx.addEnrollment(finisher.id, course.id, { completedAt: done });
+    lessons.forEach((l) => fx.completeLesson(finisher.id, l.id));
 
     // Halfway: 2 of 4 lessons, not completed
-    const halfway = addStudent();
-    addEnrollment(halfway.id, course.id);
-    completeLesson(halfway.id, lessons[0].id);
-    completeLesson(halfway.id, lessons[1].id);
+    const halfway = fx.addStudent();
+    fx.addEnrollment(halfway.id, course.id);
+    fx.completeLesson(halfway.id, lessons[0].id);
+    fx.completeLesson(halfway.id, lessons[1].id);
 
     // Just started: 0 of 4, plus a started-but-unfinished lesson
-    const starter = addStudent();
-    addEnrollment(starter.id, course.id);
+    const starter = fx.addStudent();
+    fx.addEnrollment(starter.id, course.id);
     testDb
       .insert(schema.lessonProgress)
       .values({
@@ -156,12 +80,12 @@ describe("getCourseAnalytics", () => {
       .run();
 
     // Not enrolled, but completed a lesson in this course — ignored
-    completeLesson(addStudent().id, lessons[0].id);
+    fx.completeLesson(fx.addStudent().id, lessons[0].id);
 
     // Halfway student's progress in another course doesn't leak in
-    const other = addCourse();
-    const [otherLesson] = addLessons(other.id, 1);
-    completeLesson(halfway.id, otherLesson.id);
+    const other = fx.addCourse();
+    const [otherLesson] = fx.addLessons(other.id, 1);
+    fx.completeLesson(halfway.id, otherLesson.id);
 
     const result = getCourseAnalytics(course.id, "all");
 
@@ -171,8 +95,8 @@ describe("getCourseAnalytics", () => {
   });
 
   it("returns zero counts and null rates for a course with no students", () => {
-    const course = addCourse();
-    addLessons(course.id, 3);
+    const course = fx.addCourse();
+    fx.addLessons(course.id, 3);
 
     expect(getCourseAnalytics(course.id, "all")).toEqual({
       studentCount: 0,
@@ -186,9 +110,11 @@ describe("getCourseAnalytics", () => {
   });
 
   it("returns null average progress for a course with students but no lessons", () => {
-    const course = addCourse();
-    addEnrollment(addStudent().id, course.id, "2026-01-01T00:00:00.000Z");
-    addEnrollment(addStudent().id, course.id);
+    const course = fx.addCourse();
+    fx.addEnrollment(fx.addStudent().id, course.id, {
+      completedAt: "2026-01-01T00:00:00.000Z",
+    });
+    fx.addEnrollment(fx.addStudent().id, course.id);
 
     const result = getCourseAnalytics(course.id, "all");
 

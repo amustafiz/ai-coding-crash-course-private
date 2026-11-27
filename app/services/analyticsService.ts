@@ -80,7 +80,10 @@ type QuizStats = {
   id: number;
   title: string;
   passingScore: number;
-  /** Each student's best score per quiz. Ignores the stored `passed` flag. */
+  /**
+   * Each enrolled student's best score per quiz. Ignores the stored `passed`
+   * flag and attempts by users not enrolled in the quiz's course.
+   */
   bestScores: number[];
   attemptCount: number;
 };
@@ -109,6 +112,17 @@ function getQuizStats(where: SQL | undefined): QuizStats[] {
       attempts: sql<number>`count(*)`,
     })
     .from(quizAttempts)
+    .innerJoin(quizzes, eq(quizAttempts.quizId, quizzes.id))
+    .innerJoin(lessons, eq(quizzes.lessonId, lessons.id))
+    .innerJoin(modules, eq(lessons.moduleId, modules.id))
+    // Only attempts by students enrolled in the quiz's course.
+    .innerJoin(
+      enrollments,
+      and(
+        eq(enrollments.userId, quizAttempts.userId),
+        eq(enrollments.courseId, modules.courseId)
+      )
+    )
     .where(
       inArray(
         quizAttempts.quizId,
@@ -217,7 +231,11 @@ export function getInstructorAnalytics(
     };
 
     if (course.status === CourseStatus.Draft) {
-      return { ...base, status: course.status };
+      return {
+        ...base,
+        studentCount: stats?.count ?? 0,
+        status: course.status,
+      };
     }
 
     const completed = stats?.completed ?? 0;
