@@ -4,6 +4,7 @@ import { requireStaff } from "~/lib/access.server";
 import { getCourseById } from "~/services/courseService";
 import { getCourseAnalytics } from "~/services/analyticsService";
 import { formatDollars, formatRate } from "~/lib/utils";
+import { parseRange, RangeToggle } from "~/components/range-toggle";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import {
@@ -36,9 +37,11 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     throw data("Course not found.", { status: 404 });
   }
 
+  const range = parseRange(request);
   return {
+    range,
     course: { id: course.id, title: course.title },
-    analytics: getCourseAnalytics(courseId),
+    analytics: getCourseAnalytics(courseId, range),
   };
 }
 
@@ -72,7 +75,7 @@ function MetricCard({
 export default function CourseAnalyticsPage({
   loaderData,
 }: Route.ComponentProps) {
-  const { course, analytics } = loaderData;
+  const { range, course, analytics } = loaderData;
 
   return (
     <div className="mx-auto max-w-7xl p-6 lg:p-8">
@@ -96,9 +99,12 @@ export default function CourseAnalyticsPage({
         Back to course editor
       </Link>
 
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold">{course.title}</h1>
-        <p className="mt-1 text-muted-foreground">Course analytics</p>
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold">{course.title}</h1>
+          <p className="mt-1 text-muted-foreground">Course analytics</p>
+        </div>
+        <RangeToggle range={range} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -114,12 +120,12 @@ export default function CourseAnalyticsPage({
           icon={<DollarSign className="size-5" />}
         />
         <MetricCard
-          label="Completion rate"
+          label="Completion rate (all-time)"
           value={formatRate(analytics.completionRate)}
           icon={<CheckCircle2 className="size-5" />}
         />
         <MetricCard
-          label="Average progress"
+          label="Average progress (all-time)"
           value={formatRate(analytics.averageProgress)}
           icon={<TrendingUp className="size-5" />}
         />

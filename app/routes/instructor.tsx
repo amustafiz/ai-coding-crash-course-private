@@ -21,6 +21,7 @@ import { CourseImage } from "~/components/course-image";
 import { data, isRouteErrorResponse } from "react-router";
 import { CourseStatus, UserRole } from "~/db/schema";
 import { formatDollars, formatRate } from "~/lib/utils";
+import { parseRange, RangeToggle } from "~/components/range-toggle";
 
 export function meta() {
   return [
@@ -46,7 +47,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     });
   }
 
-  return getInstructorAnalytics(currentUserId);
+  const range = parseRange(request);
+  return { range, ...getInstructorAnalytics(currentUserId, range) };
 }
 
 function SummaryCard({
@@ -135,7 +137,7 @@ export function HydrateFallback() {
 export default function InstructorDashboard({
   loaderData,
 }: Route.ComponentProps) {
-  const { state, summary, courses } = loaderData;
+  const { range, state, summary, courses } = loaderData;
 
   return (
     <div className="mx-auto max-w-7xl p-6 lg:p-8">
@@ -164,6 +166,12 @@ export default function InstructorDashboard({
       </div>
 
       {state === "ready" && (
+        <div className="mb-4 flex justify-end">
+          <RangeToggle range={range} />
+        </div>
+      )}
+
+      {state === "ready" && (
         <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <SummaryCard
             label="Students"
@@ -176,7 +184,7 @@ export default function InstructorDashboard({
             icon={<DollarSign className="size-5" />}
           />
           <SummaryCard
-            label="Completion rate"
+            label="Completion rate (all-time)"
             value={formatRate(summary.completionRate)}
             icon={<CheckCircle2 className="size-5" />}
           />
@@ -259,7 +267,10 @@ export default function InstructorDashboard({
                     </div>
                     <div className="flex items-center gap-1.5">
                       <CheckCircle2 className="size-4" />
-                      <span>{formatRate(course.completionRate)} completed</span>
+                      <span>
+                        {formatRate(course.completionRate)} completed
+                        (all-time)
+                      </span>
                     </div>
                   </div>
                 )}

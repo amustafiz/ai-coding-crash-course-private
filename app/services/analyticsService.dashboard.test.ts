@@ -106,7 +106,7 @@ describe("getInstructorAnalytics (dashboard)", () => {
   it("reports the no-courses state for an instructor without courses", () => {
     const instructor = addInstructor();
 
-    const result = getInstructorAnalytics(instructor.id);
+    const result = getInstructorAnalytics(instructor.id, "all");
 
     expect(result.state).toBe("no-courses");
     expect(result.courses).toEqual([]);
@@ -117,7 +117,7 @@ describe("getInstructorAnalytics (dashboard)", () => {
     const draft = addCourse(instructor.id, schema.CourseStatus.Draft);
     addEnrollment(addStudent().id, draft.id);
 
-    const result = getInstructorAnalytics(instructor.id);
+    const result = getInstructorAnalytics(instructor.id, "all");
 
     expect(result.state).toBe("drafts-only");
     expect(result.courses).toHaveLength(1);
@@ -134,7 +134,7 @@ describe("getInstructorAnalytics (dashboard)", () => {
     const course = addCourse(instructor.id);
     addLessons(course.id, 3);
 
-    const result = getInstructorAnalytics(instructor.id);
+    const result = getInstructorAnalytics(instructor.id, "all");
 
     expect(result.state).toBe("ready");
     expect(result.summary).toEqual({
@@ -163,7 +163,7 @@ describe("getInstructorAnalytics (dashboard)", () => {
     const instructor = addInstructor();
     const mine = addCourse(instructor.id);
 
-    const result = getInstructorAnalytics(instructor.id);
+    const result = getInstructorAnalytics(instructor.id, "all");
 
     expect(result.courses.map((c) => c.id)).toEqual([mine.id]);
     expect(result.summary).toEqual({
@@ -190,7 +190,7 @@ describe("getInstructorAnalytics (dashboard)", () => {
     addEnrollment(c.id, draft.id, "2026-01-01T00:00:00.000Z");
     addPurchase(c.id, draft.id, 50000);
 
-    const result = getInstructorAnalytics(instructor.id);
+    const result = getInstructorAnalytics(instructor.id, "all");
 
     expect(result.state).toBe("ready");
     expect(result.summary).toEqual({
@@ -217,7 +217,7 @@ describe("getInstructorAnalytics (dashboard)", () => {
     // One purchase row for 5 seats at $49.99
     addPurchase(buyer.id, course.id, 24995);
 
-    const result = getInstructorAnalytics(instructor.id);
+    const result = getInstructorAnalytics(instructor.id, "all");
 
     expect(result.summary.grossRevenue).toBe(24995);
     expect(result.courses[0]).toMatchObject({ grossRevenue: 24995 });
@@ -234,7 +234,7 @@ describe("getInstructorAnalytics (dashboard)", () => {
     addPurchase(addStudent().id, course.id, 4999);
     addPurchase(addStudent().id, course.id, 1500);
 
-    const result = getInstructorAnalytics(instructor.id);
+    const result = getInstructorAnalytics(instructor.id, "all");
 
     expect(result.summary.grossRevenue).toBe(6499);
     expect(result.courses[0]).toMatchObject({ grossRevenue: 6499 });
@@ -253,7 +253,7 @@ describe("getInstructorAnalytics (dashboard)", () => {
     addEnrollment(addStudent().id, big.id);
     addEnrollment(addStudent().id, small.id, done);
 
-    const result = getInstructorAnalytics(instructor.id);
+    const result = getInstructorAnalytics(instructor.id, "all");
 
     expect(result.courses.find((c) => c.id === big.id)).toMatchObject({
       completionRate: 0.25,

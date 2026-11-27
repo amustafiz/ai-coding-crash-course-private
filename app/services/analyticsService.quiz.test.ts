@@ -76,7 +76,7 @@ describe("quiz analytics", () => {
     // Bob: a single failing attempt
     addAttempt(bob.id, quiz.id, 0.5, "2026-01-01T00:00:00.000Z");
 
-    const [row] = getCourseAnalytics(base.course.id).quizzes;
+    const [row] = getCourseAnalytics(base.course.id, "all").quizzes;
 
     expect(row.title).toBe("Basics");
     expect(row.averageScore).toBeCloseTo(0.7); // (0.9 + 0.5) / 2
@@ -89,7 +89,7 @@ describe("quiz analytics", () => {
     // Stored as failed by the old hardcoded 0.7 threshold
     addAttempt(student.id, quiz.id, 0.65, "2026-01-01T00:00:00.000Z", false);
 
-    const [row] = getCourseAnalytics(base.course.id).quizzes;
+    const [row] = getCourseAnalytics(base.course.id, "all").quizzes;
 
     expect(row.passRate).toBe(1);
   });
@@ -103,7 +103,7 @@ describe("quiz analytics", () => {
     addAttempt(alice.id, quiz.id, 0.8, "2026-01-03T00:00:00.000Z");
     addAttempt(bob.id, quiz.id, 1, "2026-01-01T00:00:00.000Z");
 
-    const [row] = getCourseAnalytics(base.course.id).quizzes;
+    const [row] = getCourseAnalytics(base.course.id, "all").quizzes;
 
     expect(row.attemptCount).toBe(4);
   });
@@ -111,7 +111,7 @@ describe("quiz analytics", () => {
   it("returns null average and pass rate for a quiz with no attempts", () => {
     addQuiz(base.course.id, "Untouched", 0.7);
 
-    const quizzes = getCourseAnalytics(base.course.id).quizzes;
+    const quizzes = getCourseAnalytics(base.course.id, "all").quizzes;
 
     expect(quizzes).toEqual([
       expect.objectContaining({
@@ -124,7 +124,7 @@ describe("quiz analytics", () => {
   });
 
   it("returns an empty list for a course with no quizzes", () => {
-    expect(getCourseAnalytics(base.course.id).quizzes).toEqual([]);
+    expect(getCourseAnalytics(base.course.id, "all").quizzes).toEqual([]);
   });
 
   describe("dashboard average quiz score", () => {
@@ -143,7 +143,7 @@ describe("quiz analytics", () => {
       addAttempt(c.id, popular.id, 1, "2026-01-02T00:00:00.000Z");
       addAttempt(d.id, niche.id, 0, "2026-01-01T00:00:00.000Z");
 
-      const { summary } = getInstructorAnalytics(base.instructor.id);
+      const { summary } = getInstructorAnalytics(base.instructor.id, "all");
 
       // Pooled: (1 + 1 + 1 + 0) / 4 = 0.75; per-quiz averages would give 0.5
       expect(summary.averageQuizScore).toBeCloseTo(0.75);
@@ -169,7 +169,7 @@ describe("quiz analytics", () => {
       addAttempt(student.id, live.id, 0.8, "2026-01-01T00:00:00.000Z");
       addAttempt(student.id, hidden.id, 0, "2026-01-01T00:00:00.000Z");
 
-      const { summary } = getInstructorAnalytics(base.instructor.id);
+      const { summary } = getInstructorAnalytics(base.instructor.id, "all");
 
       expect(summary.averageQuizScore).toBeCloseTo(0.8);
     });
@@ -177,7 +177,7 @@ describe("quiz analytics", () => {
     it("is null when there are no attempts", () => {
       addQuiz(base.course.id, "Untouched", 0.7);
 
-      const { summary } = getInstructorAnalytics(base.instructor.id);
+      const { summary } = getInstructorAnalytics(base.instructor.id, "all");
 
       expect(summary.averageQuizScore).toBeNull();
     });

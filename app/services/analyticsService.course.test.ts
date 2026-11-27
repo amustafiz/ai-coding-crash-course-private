@@ -117,7 +117,7 @@ describe("getCourseAnalytics", () => {
     const other = addCourse();
     addPurchase(seatHolder1.id, other.id, 1000);
 
-    const result = getCourseAnalytics(course.id);
+    const result = getCourseAnalytics(course.id, "all");
 
     expect(result).toMatchObject({
       studentCount: 4,
@@ -163,7 +163,7 @@ describe("getCourseAnalytics", () => {
     const [otherLesson] = addLessons(other.id, 1);
     completeLesson(halfway.id, otherLesson.id);
 
-    const result = getCourseAnalytics(course.id);
+    const result = getCourseAnalytics(course.id, "all");
 
     // 1 of 3 completed; progress mean of 1, 0.5, 0 = 0.5
     expect(result.completionRate).toBeCloseTo(1 / 3);
@@ -174,7 +174,7 @@ describe("getCourseAnalytics", () => {
     const course = addCourse();
     addLessons(course.id, 3);
 
-    expect(getCourseAnalytics(course.id)).toEqual({
+    expect(getCourseAnalytics(course.id, "all")).toEqual({
       studentCount: 0,
       paidStudentCount: 0,
       teamSeatStudentCount: 0,
@@ -190,7 +190,7 @@ describe("getCourseAnalytics", () => {
     addEnrollment(addStudent().id, course.id, "2026-01-01T00:00:00.000Z");
     addEnrollment(addStudent().id, course.id);
 
-    const result = getCourseAnalytics(course.id);
+    const result = getCourseAnalytics(course.id, "all");
 
     expect(result.studentCount).toBe(2);
     expect(result.completionRate).toBe(0.5);
