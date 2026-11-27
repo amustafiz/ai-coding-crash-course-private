@@ -1,13 +1,21 @@
 import { Link } from "react-router";
 import type { Route } from "./+types/instructor";
-import { getCoursesByInstructor, getLessonCountForCourse } from "~/services/courseService";
-import { getEnrollmentCountForCourse } from "~/services/enrollmentService";
+import { getInstructorAnalytics } from "~/services/analyticsService";
 import { getCurrentUserId } from "~/lib/session";
 import { getUserById } from "~/services/userService";
 import { Card, CardContent, CardFooter, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
-import { AlertTriangle, BookOpen, GraduationCap, Plus, Users } from "lucide-react";
+import {
+  AlertTriangle,
+  BarChart3,
+  BookOpen,
+  CheckCircle2,
+  DollarSign,
+  GraduationCap,
+  Plus,
+  Users,
+} from "lucide-react";
 import { CourseImage } from "~/components/course-image";
 import { data, isRouteErrorResponse } from "react-router";
 import { CourseStatus, UserRole } from "~/db/schema";
@@ -36,27 +44,44 @@ export async function loader({ request }: Route.LoaderArgs) {
     });
   }
 
-  const instructorCourses = getCoursesByInstructor(currentUserId);
+  return getInstructorAnalytics(currentUserId);
+}
 
-  const coursesWithStats = instructorCourses.map((course) => {
-    const lessonCount = getLessonCountForCourse(course.id);
-    const enrollmentCount = getEnrollmentCountForCourse(course.id);
-
-    return {
-      id: course.id,
-      title: course.title,
-      slug: course.slug,
-      description: course.description,
-      status: course.status,
-      coverImageUrl: course.coverImageUrl,
-      lessonCount,
-      enrollmentCount,
-      createdAt: course.createdAt,
-      updatedAt: course.updatedAt,
-    };
+function formatDollars(cents: number) {
+  return (cents / 100).toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
   });
+}
 
-  return { courses: coursesWithStats };
+function formatRate(rate: number | null) {
+  return rate === null ? "—" : `${Math.round(rate * 100)}%`;
+}
+
+function SummaryCard({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <Card className="gap-2 py-4">
+      <CardContent className="flex items-center gap-3">
+        <div className="rounded-md bg-muted p-2 text-muted-foreground">
+          {icon}
+        </div>
+        <div>
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className="text-2xl font-semibold">{value}</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 function statusBadge(status: string) {
@@ -121,7 +146,7 @@ export function HydrateFallback() {
 export default function InstructorDashboard({
   loaderData,
 }: Route.ComponentProps) {
-  const { courses } = loaderData;
+  const { state, summary, courses } = loaderData;
 
   return (
     <div className="mx-auto max-w-7xl p-6 lg:p-8">
@@ -149,7 +174,34 @@ export default function InstructorDashboard({
         </Link>
       </div>
 
-      {courses.length === 0 ? (
+      {state === "ready" && (
+        <div className="mb-8 grid gap-4 sm:grid-cols-3">
+          <SummaryCard
+            label="Students"
+            value={summary.studentCount.toLocaleString("en-US")}
+            icon={<Users className="size-5" />}
+          />
+          <SummaryCard
+            label="Gross revenue"
+            value={formatDollars(summary.grossRevenue)}
+            icon={<DollarSign className="size-5" />}
+          />
+          <SummaryCard
+            label="Completion rate"
+            value={formatRate(summary.completionRate)}
+            icon={<CheckCircle2 className="size-5" />}
+          />
+        </div>
+      )}
+
+      {state === "drafts-only" && (
+        <div className="mb-8 flex items-center gap-2 rounded-md border bg-muted/40 px-4 py-2 text-sm text-muted-foreground">
+          <BarChart3 className="size-4" />
+          Analytics will appear once you publish a course
+        </div>
+      )}
+
+      {state === "no-courses" ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <GraduationCap className="mb-4 size-12 text-muted-foreground/50" />
           <h2 className="text-lg font-medium">No courses yet</h2>
@@ -200,11 +252,23 @@ export default function InstructorDashboard({
                   <div className="flex items-center gap-1.5">
                     <Users className="size-4" />
                     <span>
-                      {course.enrollmentCount}{" "}
-                      {course.enrollmentCount === 1 ? "student" : "students"}
+                      {course.studentCount}{" "}
+                      {course.studentCount === 1 ? "student" : "students"}
                     </span>
                   </div>
                 </div>
+                {course.status !== CourseStatus.Draft && (
+                  <div className="mt-2 flex items-center gap-4 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-1.5">
+                      <DollarSign className="size-4" />
+                      <span>{formatDollars(course.grossRevenue)}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <CheckCircle2 className="size-4" />
+                      <span>{formatRate(course.completionRate)} completed</span>
+                    </div>
+                  </div>
+                )}
               </CardContent>
               <CardFooter>
                 <Link to={`/instructor/${course.id}`} className="w-full">
