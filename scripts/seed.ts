@@ -1921,25 +1921,27 @@ You've completed the Building REST APIs course. You now have the skills to build
 
   // ─── Analytics: new students (12 enrolled + 1 team buyer) ───
 
-  const analyticsStudentNames = [
-    "Noah Garcia", // 0  course 1, purchased, completed
-    "Ava Martinez", // 1  course 1, PPP (BR), partial
-    "Ethan Brown", // 2  course 1, purchased, partial
-    "Mia Davis", // 3  course 1, purchased (GB), completed
-    "Lucas Miller", // 4  course 1, purchased, no progress yet
-    "Chloe Taylor", // 5  course 1, team seat, partial
-    "Henry Anderson", // 6  course 1, team seat, barely started
-    "Isabella Thomas", // 7  course 2, purchased, completed
-    "Jack Moore", // 8  course 2, PPP (PH), partial
-    "Zoe Jackson", // 9  course 2, purchased (CA), partial
-    "Ryan White", // 10 course 2, purchased, barely started
-    "Lily Harris", // 11 both courses, purchased (DE), partial
-  ];
+  // Keys are used below to refer to each student; insertion order fixes ids.
+  const analyticsStudentNames = {
+    noah: "Noah Garcia", // course 1, purchased, completed
+    ava: "Ava Martinez", // course 1, PPP (BR), partial
+    ethan: "Ethan Brown", // course 1, purchased, partial
+    mia: "Mia Davis", // course 1, purchased (GB), completed
+    lucas: "Lucas Miller", // course 1, purchased, no progress yet
+    chloe: "Chloe Taylor", // course 1, team seat, partial
+    henry: "Henry Anderson", // course 1, team seat, barely started
+    isabella: "Isabella Thomas", // course 2, purchased, completed
+    jack: "Jack Moore", // course 2, PPP (PH), partial
+    zoe: "Zoe Jackson", // course 2, purchased (CA), partial
+    ryan: "Ryan White", // course 2, purchased, barely started
+    lily: "Lily Harris", // both courses, purchased (DE), partial
+  };
+  type AnalyticsStudentKey = keyof typeof analyticsStudentNames;
 
-  const aStudents = db
+  const analyticsStudentRows = db
     .insert(schema.users)
     .values(
-      analyticsStudentNames.map((name, i) => {
+      Object.values(analyticsStudentNames).map((name, i) => {
         const [first, last] = name.toLowerCase().split(" ");
         return {
           name,
@@ -1953,7 +1955,17 @@ You've completed the Building REST APIs course. You now have the skills to build
     .returning()
     .all();
 
-  const [teamBuyer2] = db
+  const analyticsStudents = Object.fromEntries(
+    Object.keys(analyticsStudentNames).map((key, i) => [
+      key,
+      analyticsStudentRows[i],
+    ])
+  ) as Record<AnalyticsStudentKey, (typeof analyticsStudentRows)[number]>;
+
+  const studentId = (key: AnalyticsStudentKey) => analyticsStudents[key].id;
+
+  // Buys the team seats below; not enrolled herself.
+  const [teamSeatBuyer] = db
     .insert(schema.users)
     .values({
       name: "Grace Kim",
@@ -2078,7 +2090,7 @@ You've completed the Building REST APIs course. You now have the skills to build
   // Lets a 2/3 (0.667) attempt exist that the current scoring (fixed 0.7
   // threshold in recordQuizAttempt, see #3) stores as passed = false.
 
-  const [quiz4] = db
+  const [middlewareQuiz] = db
     .insert(schema.quizzes)
     .values({
       lessonId: course2LessonIds[5],
@@ -2088,7 +2100,7 @@ You've completed the Building REST APIs course. You now have the skills to build
     .returning()
     .all();
 
-  const quiz4Questions = [
+  const middlewareQuizQuestions = [
     {
       text: "Express middleware receives which arguments?",
       type: QuestionType.MultipleChoice,
@@ -2117,17 +2129,17 @@ You've completed the Building REST APIs course. You now have the skills to build
     },
   ];
 
-  const quiz4OptionIds: {
+  const middlewareQuizOptionIds: {
     questionId: number;
     optionId: number;
     correct: boolean;
   }[] = [];
 
-  quiz4Questions.forEach((q, qi) => {
+  middlewareQuizQuestions.forEach((q, qi) => {
     const [question] = db
       .insert(schema.quizQuestions)
       .values({
-        quizId: quiz4.id,
+        quizId: middlewareQuiz.id,
         questionText: q.text,
         questionType: q.type,
         position: qi + 1,
@@ -2144,7 +2156,7 @@ You've completed the Building REST APIs course. You now have the skills to build
         })
         .returning()
         .all();
-      quiz4OptionIds.push({
+      middlewareQuizOptionIds.push({
         questionId: question.id,
         optionId: option.id,
         correct: opt.correct,
@@ -2157,84 +2169,84 @@ You've completed the Building REST APIs course. You now have the skills to build
   // Outside the last 30 days: Noah, Ava (PPP), Ethan, Isabella, Lily (c2)
 
   const analyticsPurchases: {
-    student: number;
+    student: AnalyticsStudentKey;
     courseId: number;
     amountPaid: number;
     country: string;
     days: number;
   }[] = [
     {
-      student: 0,
+      student: "noah",
       courseId: course1.id,
       amountPaid: 4999,
       country: "US",
       days: 48,
     },
     {
-      student: 1,
+      student: "ava",
       courseId: course1.id,
       amountPaid: 2499,
       country: "BR",
       days: 44,
     }, // PPP
     {
-      student: 2,
+      student: "ethan",
       courseId: course1.id,
       amountPaid: 4999,
       country: "US",
       days: 38,
     },
     {
-      student: 3,
+      student: "mia",
       courseId: course1.id,
       amountPaid: 4999,
       country: "GB",
       days: 22,
     },
     {
-      student: 4,
+      student: "lucas",
       courseId: course1.id,
       amountPaid: 4999,
       country: "US",
       days: 9,
     },
     {
-      student: 7,
+      student: "isabella",
       courseId: course2.id,
       amountPaid: 5999,
       country: "US",
       days: 47,
     },
     {
-      student: 8,
+      student: "jack",
       courseId: course2.id,
       amountPaid: 2999,
       country: "PH",
       days: 12,
     }, // PPP
     {
-      student: 9,
+      student: "zoe",
       courseId: course2.id,
       amountPaid: 5999,
       country: "CA",
       days: 28,
     },
     {
-      student: 10,
+      student: "ryan",
       courseId: course2.id,
       amountPaid: 5999,
       country: "US",
       days: 5,
     },
     {
-      student: 11,
+      student: "lily",
       courseId: course2.id,
       amountPaid: 5999,
       country: "DE",
       days: 33,
     },
     {
-      student: 11,
+      student: "lily",
       courseId: course1.id,
       amountPaid: 4999,
       country: "DE",
@@ -2245,7 +2257,7 @@ You've completed the Building REST APIs course. You now have the skills to build
   db.insert(schema.purchases)
     .values(
       analyticsPurchases.map((p) => ({
-        userId: aStudents[p.student].id,
+        userId: studentId(p.student),
         courseId: p.courseId,
         amountPaid: p.amountPaid,
         country: p.country,
@@ -2257,7 +2269,7 @@ You've completed the Building REST APIs course. You now have the skills to build
   // ─── Analytics: second team (Grace Kim buys 3 seats of course 1) ───
   // Chloe and Henry redeem seats, so they are enrolled with no purchase row.
 
-  const [team2] = db
+  const [analyticsTeam] = db
     .insert(schema.teams)
     .values({ createdAt: daysAgo(27) })
     .returning()
@@ -2265,17 +2277,17 @@ You've completed the Building REST APIs course. You now have the skills to build
 
   db.insert(schema.teamMembers)
     .values({
-      teamId: team2.id,
-      userId: teamBuyer2.id,
+      teamId: analyticsTeam.id,
+      userId: teamSeatBuyer.id,
       role: TeamMemberRole.Admin,
       createdAt: daysAgo(27),
     })
     .run();
 
-  const [teamPurchase2] = db
+  const [analyticsTeamPurchase] = db
     .insert(schema.purchases)
     .values({
-      userId: teamBuyer2.id,
+      userId: teamSeatBuyer.id,
       courseId: course1.id,
       amountPaid: 4999 * 3,
       country: "US",
@@ -2284,22 +2296,26 @@ You've completed the Building REST APIs course. You now have the skills to build
     .returning()
     .all();
 
-  const team2Seats: { code: string; student: number | null; days: number }[] = [
-    { code: "TEAM-TS-P1Q2R3", student: 5, days: 26 },
-    { code: "TEAM-TS-S4T5U6", student: 6, days: 24 },
+  const analyticsTeamSeats: {
+    code: string;
+    student: AnalyticsStudentKey | null;
+    days: number;
+  }[] = [
+    { code: "TEAM-TS-P1Q2R3", student: "chloe", days: 26 },
+    { code: "TEAM-TS-S4T5U6", student: "henry", days: 24 },
     { code: "TEAM-TS-V7W8X9", student: null, days: 0 },
   ];
 
   db.insert(schema.coupons)
     .values(
-      team2Seats.map((seat) => ({
-        teamId: team2.id,
+      analyticsTeamSeats.map((seat) => ({
+        teamId: analyticsTeam.id,
         courseId: course1.id,
         code: seat.code,
-        purchaseId: teamPurchase2.id,
+        purchaseId: analyticsTeamPurchase.id,
         createdAt: daysAgo(27),
         redeemedByUserId:
-          seat.student === null ? null : aStudents[seat.student].id,
+          seat.student === null ? null : studentId(seat.student),
         redeemedAt: seat.student === null ? null : daysAgo(seat.days),
       }))
     )
@@ -2310,49 +2326,49 @@ You've completed the Building REST APIs course. You now have the skills to build
   // Course 2: 5 new enrollments, 1 completed (Isabella)
 
   const analyticsEnrollments: {
-    student: number;
+    student: AnalyticsStudentKey;
     course: "c1" | "c2";
     enrolledDays: number;
     completedDays?: number;
     lessonsDone: number;
   }[] = [
     {
-      student: 0,
+      student: "noah",
       course: "c1",
       enrolledDays: 48,
       completedDays: 20,
       lessonsDone: course1LessonIds.length,
     },
-    { student: 1, course: "c1", enrolledDays: 44, lessonsDone: 12 },
-    { student: 2, course: "c1", enrolledDays: 38, lessonsDone: 6 },
+    { student: "ava", course: "c1", enrolledDays: 44, lessonsDone: 12 },
+    { student: "ethan", course: "c1", enrolledDays: 38, lessonsDone: 6 },
     {
-      student: 3,
+      student: "mia",
       course: "c1",
       enrolledDays: 22,
       completedDays: 3,
       lessonsDone: course1LessonIds.length,
     },
-    { student: 4, course: "c1", enrolledDays: 9, lessonsDone: 0 },
-    { student: 5, course: "c1", enrolledDays: 26, lessonsDone: 9 },
-    { student: 6, course: "c1", enrolledDays: 24, lessonsDone: 2 },
-    { student: 11, course: "c1", enrolledDays: 18, lessonsDone: 5 },
+    { student: "lucas", course: "c1", enrolledDays: 9, lessonsDone: 0 },
+    { student: "chloe", course: "c1", enrolledDays: 26, lessonsDone: 9 },
+    { student: "henry", course: "c1", enrolledDays: 24, lessonsDone: 2 },
+    { student: "lily", course: "c1", enrolledDays: 18, lessonsDone: 5 },
     {
-      student: 7,
+      student: "isabella",
       course: "c2",
       enrolledDays: 47,
       completedDays: 15,
       lessonsDone: course2LessonIds.length,
     },
-    { student: 8, course: "c2", enrolledDays: 12, lessonsDone: 15 },
-    { student: 9, course: "c2", enrolledDays: 28, lessonsDone: 4 },
-    { student: 10, course: "c2", enrolledDays: 5, lessonsDone: 1 },
-    { student: 11, course: "c2", enrolledDays: 33, lessonsDone: 10 },
+    { student: "jack", course: "c2", enrolledDays: 12, lessonsDone: 15 },
+    { student: "zoe", course: "c2", enrolledDays: 28, lessonsDone: 4 },
+    { student: "ryan", course: "c2", enrolledDays: 5, lessonsDone: 1 },
+    { student: "lily", course: "c2", enrolledDays: 33, lessonsDone: 10 },
   ];
 
   for (const e of analyticsEnrollments) {
     const course = e.course === "c1" ? course1 : course2;
     const lessonIds = e.course === "c1" ? course1LessonIds : course2LessonIds;
-    const userId = aStudents[e.student].id;
+    const userId = studentId(e.student);
 
     db.insert(schema.enrollments)
       .values({
@@ -2379,51 +2395,70 @@ You've completed the Building REST APIs course. You now have the skills to build
 
   // ─── Analytics: quiz attempts (repeats where best is not latest) ───
 
-  const s = (i: number) => aStudents[i].id;
+  const { noah, ava, ethan, mia, chloe, isabella, jack, zoe, lily } =
+    analyticsStudents;
 
   // Noah — aced quiz 1, then a worse retake (best not latest)
-  recordQuizAttempt(s(0), quiz1.id, quiz1OptionIds, [0, 1, 2], 40);
-  recordQuizAttempt(s(0), quiz1.id, quiz1OptionIds, [0], 39);
-  recordQuizAttempt(s(0), quiz2.id, quiz2OptionIds, [0, 1], 37);
+  recordQuizAttempt(noah.id, quiz1.id, quiz1OptionIds, [0, 1, 2], 40);
+  recordQuizAttempt(noah.id, quiz1.id, quiz1OptionIds, [0], 39);
+  recordQuizAttempt(noah.id, quiz2.id, quiz2OptionIds, [0, 1], 37);
 
   // Ava — fail, pass, then a worse third attempt (best not latest)
-  recordQuizAttempt(s(1), quiz1.id, quiz1OptionIds, [0, 1], 42);
-  recordQuizAttempt(s(1), quiz1.id, quiz1OptionIds, [0, 1, 2], 41);
-  recordQuizAttempt(s(1), quiz1.id, quiz1OptionIds, [1], 30);
-  recordQuizAttempt(s(1), quiz2.id, quiz2OptionIds, [0], 35);
-  recordQuizAttempt(s(1), quiz2.id, quiz2OptionIds, [0, 1], 34);
+  recordQuizAttempt(ava.id, quiz1.id, quiz1OptionIds, [0, 1], 42);
+  recordQuizAttempt(ava.id, quiz1.id, quiz1OptionIds, [0, 1, 2], 41);
+  recordQuizAttempt(ava.id, quiz1.id, quiz1OptionIds, [1], 30);
+  recordQuizAttempt(ava.id, quiz2.id, quiz2OptionIds, [0], 35);
+  recordQuizAttempt(ava.id, quiz2.id, quiz2OptionIds, [0, 1], 34);
 
   // Ethan — passed, then a worse retake (best not latest)
-  recordQuizAttempt(s(2), quiz1.id, quiz1OptionIds, [0, 1, 2], 35);
-  recordQuizAttempt(s(2), quiz1.id, quiz1OptionIds, [0, 2], 34);
+  recordQuizAttempt(ethan.id, quiz1.id, quiz1OptionIds, [0, 1, 2], 35);
+  recordQuizAttempt(ethan.id, quiz1.id, quiz1OptionIds, [0, 2], 34);
 
   // Mia — single pass
-  recordQuizAttempt(s(3), quiz1.id, quiz1OptionIds, [0, 1, 2], 20);
+  recordQuizAttempt(mia.id, quiz1.id, quiz1OptionIds, [0, 1, 2], 20);
 
   // Chloe — quiz 1 near miss; quiz 2 pass then worse retake (best not latest)
-  recordQuizAttempt(s(5), quiz1.id, quiz1OptionIds, [0, 1], 25);
-  recordQuizAttempt(s(5), quiz2.id, quiz2OptionIds, [0, 1], 20);
-  recordQuizAttempt(s(5), quiz2.id, quiz2OptionIds, [1], 19);
+  recordQuizAttempt(chloe.id, quiz1.id, quiz1OptionIds, [0, 1], 25);
+  recordQuizAttempt(chloe.id, quiz2.id, quiz2OptionIds, [0, 1], 20);
+  recordQuizAttempt(chloe.id, quiz2.id, quiz2OptionIds, [1], 19);
 
-  // Isabella — quiz 3 pass; quiz 4 PASS-MARK CASE: 2/3 = 0.667 on a
+  // Isabella — quiz 3 pass; Middleware Check PASS-MARK CASE: 2/3 = 0.667 on a
   // passingScore 0.6 quiz, stored as passed = false by current scoring
-  recordQuizAttempt(s(7), quiz3.id, quiz3OptionIds, [0, 1, 2], 44);
-  recordQuizAttempt(s(7), quiz4.id, quiz4OptionIds, [0, 1], 40);
+  recordQuizAttempt(isabella.id, quiz3.id, quiz3OptionIds, [0, 1, 2], 44);
+  recordQuizAttempt(
+    isabella.id,
+    middlewareQuiz.id,
+    middlewareQuizOptionIds,
+    [0, 1],
+    40
+  );
 
-  // Jack — quiz 3 fail, pass, then worse (best not latest); quiz 4 2/3 too
-  recordQuizAttempt(s(8), quiz3.id, quiz3OptionIds, [0], 11);
-  recordQuizAttempt(s(8), quiz3.id, quiz3OptionIds, [0, 1, 2], 10);
-  recordQuizAttempt(s(8), quiz3.id, quiz3OptionIds, [0, 2], 9);
-  recordQuizAttempt(s(8), quiz4.id, quiz4OptionIds, [0, 1], 8);
+  // Jack — quiz 3 fail, pass, then worse (best not latest); Middleware Check 2/3 too
+  recordQuizAttempt(jack.id, quiz3.id, quiz3OptionIds, [0], 11);
+  recordQuizAttempt(jack.id, quiz3.id, quiz3OptionIds, [0, 1, 2], 10);
+  recordQuizAttempt(jack.id, quiz3.id, quiz3OptionIds, [0, 2], 9);
+  recordQuizAttempt(
+    jack.id,
+    middlewareQuiz.id,
+    middlewareQuizOptionIds,
+    [0, 1],
+    8
+  );
 
   // Zoe — quiz 3 near miss
-  recordQuizAttempt(s(9), quiz3.id, quiz3OptionIds, [0, 1], 26);
+  recordQuizAttempt(zoe.id, quiz3.id, quiz3OptionIds, [0, 1], 26);
 
-  // Lily — quiz 4 full marks
-  recordQuizAttempt(s(11), quiz4.id, quiz4OptionIds, [0, 1, 2], 20);
+  // Lily — Middleware Check full marks
+  recordQuizAttempt(
+    lily.id,
+    middlewareQuiz.id,
+    middlewareQuizOptionIds,
+    [0, 1, 2],
+    20
+  );
 
   console.log(
-    `Analytics top-up: ${aStudents.length + 1} students, 2 instructors (${instructorNoCourses.name}: no courses, ${instructorDraftOnly.name}: draft "${draftCourse.title}"), empty published course "${emptyPublishedCourse.title}", quiz "${quiz4.title}", ${analyticsPurchases.length + 1} purchases, 1 team, ${analyticsEnrollments.length} enrollments.`
+    `Analytics top-up: ${analyticsStudentRows.length + 1} students, 2 instructors (${instructorNoCourses.name}: no courses, ${instructorDraftOnly.name}: draft "${draftCourse.title}"), empty published course "${emptyPublishedCourse.title}", quiz "${middlewareQuiz.title}", ${analyticsPurchases.length + 1} purchases, 1 team, ${analyticsEnrollments.length} enrollments.`
   );
 
   console.log("\n✓ Seed complete!");
