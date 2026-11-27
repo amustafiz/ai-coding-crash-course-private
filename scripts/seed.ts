@@ -1913,18 +1913,531 @@ You've completed the Building REST APIs course. You now have the skills to build
     `Created 1 team with Bossy McBossface as admin, 1 team purchase, and ${seededCoupons.length} coupons (2 redeemed, 3 available).`
   );
 
+  // ═══════════════════════════════════════════════════════════════════
+  // ─── Analytics Top-Up (#4) ───
+  // Extra rows so every instructor analytics metric and empty state can
+  // be checked by hand. Only adds rows; nothing above is modified.
+  // ═══════════════════════════════════════════════════════════════════
+
+  // ─── Analytics: new students (12 enrolled + 1 team buyer) ───
+
+  const analyticsStudentNames = [
+    "Noah Garcia", // 0  course 1, purchased, completed
+    "Ava Martinez", // 1  course 1, PPP (BR), partial
+    "Ethan Brown", // 2  course 1, purchased, partial
+    "Mia Davis", // 3  course 1, purchased (GB), completed
+    "Lucas Miller", // 4  course 1, purchased, no progress yet
+    "Chloe Taylor", // 5  course 1, team seat, partial
+    "Henry Anderson", // 6  course 1, team seat, barely started
+    "Isabella Thomas", // 7  course 2, purchased, completed
+    "Jack Moore", // 8  course 2, PPP (PH), partial
+    "Zoe Jackson", // 9  course 2, purchased (CA), partial
+    "Ryan White", // 10 course 2, purchased, barely started
+    "Lily Harris", // 11 both courses, purchased (DE), partial
+  ];
+
+  const aStudents = db
+    .insert(schema.users)
+    .values(
+      analyticsStudentNames.map((name, i) => {
+        const [first, last] = name.toLowerCase().split(" ");
+        return {
+          name,
+          email: `${first}.${last}@student.dev`,
+          role: UserRole.Student,
+          avatarUrl: `https://api.dicebear.com/9.x/avataaars/svg?seed=${first}`,
+          createdAt: daysAgo(50 - i),
+        };
+      })
+    )
+    .returning()
+    .all();
+
+  const [teamBuyer2] = db
+    .insert(schema.users)
+    .values({
+      name: "Grace Kim",
+      email: "grace.kim@student.dev",
+      role: UserRole.Student,
+      avatarUrl: "https://api.dicebear.com/9.x/avataaars/svg?seed=grace",
+      createdAt: daysAgo(28),
+    })
+    .returning()
+    .all();
+
+  // ─── Analytics: empty-state instructors and courses ───
+
+  // Instructor with no courses at all
+  const [instructorNoCourses] = db
+    .insert(schema.users)
+    .values({
+      name: "Priya Natarajan",
+      email: "priya.natarajan@ralph.dev",
+      role: UserRole.Instructor,
+      avatarUrl: "https://api.dicebear.com/9.x/avataaars/svg?seed=priya",
+      bio: "Data engineer who has just joined the platform and has not published anything yet.",
+      createdAt: daysAgo(14),
+    })
+    .returning()
+    .all();
+
+  // Instructor with only a draft course
+  const [instructorDraftOnly] = db
+    .insert(schema.users)
+    .values({
+      name: "Diego Fernandez",
+      email: "diego.fernandez@ralph.dev",
+      role: UserRole.Instructor,
+      avatarUrl: "https://api.dicebear.com/9.x/avataaars/svg?seed=diego",
+      bio: "Platform engineer working on his first course about containers.",
+      createdAt: daysAgo(21),
+    })
+    .returning()
+    .all();
+
+  function insertSmallCourse(values: {
+    title: string;
+    description: string;
+    instructorId: number;
+    categoryId: number;
+    status: CourseStatus;
+    price: number;
+    createdDaysAgo: number;
+    lessonTitles: string[];
+  }) {
+    const [course] = db
+      .insert(schema.courses)
+      .values({
+        title: values.title,
+        slug: slugify(values.title),
+        description: values.description,
+        salesCopy: `## ${values.title}\n\n${values.description}`,
+        instructorId: values.instructorId,
+        categoryId: values.categoryId,
+        status: values.status,
+        price: values.price,
+        createdAt: daysAgo(values.createdDaysAgo),
+        updatedAt: daysAgo(values.createdDaysAgo),
+      })
+      .returning()
+      .all();
+
+    const [mod] = db
+      .insert(schema.modules)
+      .values({
+        courseId: course.id,
+        title: "Getting Started",
+        position: 1,
+        createdAt: daysAgo(values.createdDaysAgo),
+      })
+      .returning()
+      .all();
+
+    values.lessonTitles.forEach((title, li) => {
+      db.insert(schema.lessons)
+        .values({
+          moduleId: mod.id,
+          title,
+          content: `# ${title}\n\nLesson content coming soon.`,
+          position: li + 1,
+          durationMinutes: 10,
+          createdAt: daysAgo(values.createdDaysAgo),
+        })
+        .run();
+    });
+
+    return course;
+  }
+
+  const draftCourse = insertSmallCourse({
+    title: "Containers with Docker",
+    description:
+      "A hands-on introduction to Docker images, containers, and compose files.",
+    instructorId: instructorDraftOnly.id,
+    categoryId: catBySlug["devops"].id,
+    status: CourseStatus.Draft,
+    price: 3999,
+    createdDaysAgo: 18,
+    lessonTitles: ["What Is a Container?", "Writing a Dockerfile"],
+  });
+
+  // Published course with no students (Marcus Johnson)
+  const emptyPublishedCourse = insertSmallCourse({
+    title: "GraphQL API Design",
+    description:
+      "Design schemas, resolvers, and pagination for production GraphQL APIs.",
+    instructorId: instructor2.id,
+    categoryId: catBySlug["programming"].id,
+    status: CourseStatus.Published,
+    price: 4499,
+    createdDaysAgo: 12,
+    lessonTitles: ["Schema-First Design", "Resolvers and Data Loaders"],
+  });
+
+  // ─── Analytics: quiz with passingScore 0.6 and 3 questions ───
+  // Lets a 2/3 (0.667) attempt exist that the current scoring (fixed 0.7
+  // threshold in recordQuizAttempt, see #3) stores as passed = false.
+
+  const [quiz4] = db
+    .insert(schema.quizzes)
+    .values({
+      lessonId: course2LessonIds[5],
+      title: "Middleware Check",
+      passingScore: 0.6,
+    })
+    .returning()
+    .all();
+
+  const quiz4Questions = [
+    {
+      text: "Express middleware receives which arguments?",
+      type: QuestionType.MultipleChoice,
+      options: [
+        { text: "req, res, next", correct: true },
+        { text: "request only", correct: false },
+        { text: "app, router", correct: false },
+      ],
+    },
+    {
+      text: "Calling next() passes control to the next middleware.",
+      type: QuestionType.TrueFalse,
+      options: [
+        { text: "True", correct: true },
+        { text: "False", correct: false },
+      ],
+    },
+    {
+      text: "Error-handling middleware takes how many arguments?",
+      type: QuestionType.MultipleChoice,
+      options: [
+        { text: "4", correct: true },
+        { text: "2", correct: false },
+        { text: "3", correct: false },
+      ],
+    },
+  ];
+
+  const quiz4OptionIds: {
+    questionId: number;
+    optionId: number;
+    correct: boolean;
+  }[] = [];
+
+  quiz4Questions.forEach((q, qi) => {
+    const [question] = db
+      .insert(schema.quizQuestions)
+      .values({
+        quizId: quiz4.id,
+        questionText: q.text,
+        questionType: q.type,
+        position: qi + 1,
+      })
+      .returning()
+      .all();
+    for (const opt of q.options) {
+      const [option] = db
+        .insert(schema.quizOptions)
+        .values({
+          questionId: question.id,
+          optionText: opt.text,
+          isCorrect: opt.correct,
+        })
+        .returning()
+        .all();
+      quiz4OptionIds.push({
+        questionId: question.id,
+        optionId: option.id,
+        correct: opt.correct,
+      });
+    }
+  });
+
+  // ─── Analytics: individual purchases (spread over ~50 days) ───
+  // Inside the last 30 days: Mia, Lucas, Jack (PPP), Zoe, Ryan, Lily (c1)
+  // Outside the last 30 days: Noah, Ava (PPP), Ethan, Isabella, Lily (c2)
+
+  const analyticsPurchases: {
+    student: number;
+    courseId: number;
+    amountPaid: number;
+    country: string;
+    days: number;
+  }[] = [
+    {
+      student: 0,
+      courseId: course1.id,
+      amountPaid: 4999,
+      country: "US",
+      days: 48,
+    },
+    {
+      student: 1,
+      courseId: course1.id,
+      amountPaid: 2499,
+      country: "BR",
+      days: 44,
+    }, // PPP
+    {
+      student: 2,
+      courseId: course1.id,
+      amountPaid: 4999,
+      country: "US",
+      days: 38,
+    },
+    {
+      student: 3,
+      courseId: course1.id,
+      amountPaid: 4999,
+      country: "GB",
+      days: 22,
+    },
+    {
+      student: 4,
+      courseId: course1.id,
+      amountPaid: 4999,
+      country: "US",
+      days: 9,
+    },
+    {
+      student: 7,
+      courseId: course2.id,
+      amountPaid: 5999,
+      country: "US",
+      days: 47,
+    },
+    {
+      student: 8,
+      courseId: course2.id,
+      amountPaid: 2999,
+      country: "PH",
+      days: 12,
+    }, // PPP
+    {
+      student: 9,
+      courseId: course2.id,
+      amountPaid: 5999,
+      country: "CA",
+      days: 28,
+    },
+    {
+      student: 10,
+      courseId: course2.id,
+      amountPaid: 5999,
+      country: "US",
+      days: 5,
+    },
+    {
+      student: 11,
+      courseId: course2.id,
+      amountPaid: 5999,
+      country: "DE",
+      days: 33,
+    },
+    {
+      student: 11,
+      courseId: course1.id,
+      amountPaid: 4999,
+      country: "DE",
+      days: 18,
+    },
+  ];
+
+  db.insert(schema.purchases)
+    .values(
+      analyticsPurchases.map((p) => ({
+        userId: aStudents[p.student].id,
+        courseId: p.courseId,
+        amountPaid: p.amountPaid,
+        country: p.country,
+        createdAt: daysAgo(p.days),
+      }))
+    )
+    .run();
+
+  // ─── Analytics: second team (Grace Kim buys 3 seats of course 1) ───
+  // Chloe and Henry redeem seats, so they are enrolled with no purchase row.
+
+  const [team2] = db
+    .insert(schema.teams)
+    .values({ createdAt: daysAgo(27) })
+    .returning()
+    .all();
+
+  db.insert(schema.teamMembers)
+    .values({
+      teamId: team2.id,
+      userId: teamBuyer2.id,
+      role: TeamMemberRole.Admin,
+      createdAt: daysAgo(27),
+    })
+    .run();
+
+  const [teamPurchase2] = db
+    .insert(schema.purchases)
+    .values({
+      userId: teamBuyer2.id,
+      courseId: course1.id,
+      amountPaid: 4999 * 3,
+      country: "US",
+      createdAt: daysAgo(27),
+    })
+    .returning()
+    .all();
+
+  const team2Seats: { code: string; student: number | null; days: number }[] = [
+    { code: "TEAM-TS-P1Q2R3", student: 5, days: 26 },
+    { code: "TEAM-TS-S4T5U6", student: 6, days: 24 },
+    { code: "TEAM-TS-V7W8X9", student: null, days: 0 },
+  ];
+
+  db.insert(schema.coupons)
+    .values(
+      team2Seats.map((seat) => ({
+        teamId: team2.id,
+        courseId: course1.id,
+        code: seat.code,
+        purchaseId: teamPurchase2.id,
+        createdAt: daysAgo(27),
+        redeemedByUserId:
+          seat.student === null ? null : aStudents[seat.student].id,
+        redeemedAt: seat.student === null ? null : daysAgo(seat.days),
+      }))
+    )
+    .run();
+
+  // ─── Analytics: enrollments with mixed completion and progress ───
+  // Course 1: 8 new enrollments, 2 completed (Noah, Mia)
+  // Course 2: 5 new enrollments, 1 completed (Isabella)
+
+  const analyticsEnrollments: {
+    student: number;
+    course: "c1" | "c2";
+    enrolledDays: number;
+    completedDays?: number;
+    lessonsDone: number;
+  }[] = [
+    {
+      student: 0,
+      course: "c1",
+      enrolledDays: 48,
+      completedDays: 20,
+      lessonsDone: course1LessonIds.length,
+    },
+    { student: 1, course: "c1", enrolledDays: 44, lessonsDone: 12 },
+    { student: 2, course: "c1", enrolledDays: 38, lessonsDone: 6 },
+    {
+      student: 3,
+      course: "c1",
+      enrolledDays: 22,
+      completedDays: 3,
+      lessonsDone: course1LessonIds.length,
+    },
+    { student: 4, course: "c1", enrolledDays: 9, lessonsDone: 0 },
+    { student: 5, course: "c1", enrolledDays: 26, lessonsDone: 9 },
+    { student: 6, course: "c1", enrolledDays: 24, lessonsDone: 2 },
+    { student: 11, course: "c1", enrolledDays: 18, lessonsDone: 5 },
+    {
+      student: 7,
+      course: "c2",
+      enrolledDays: 47,
+      completedDays: 15,
+      lessonsDone: course2LessonIds.length,
+    },
+    { student: 8, course: "c2", enrolledDays: 12, lessonsDone: 15 },
+    { student: 9, course: "c2", enrolledDays: 28, lessonsDone: 4 },
+    { student: 10, course: "c2", enrolledDays: 5, lessonsDone: 1 },
+    { student: 11, course: "c2", enrolledDays: 33, lessonsDone: 10 },
+  ];
+
+  for (const e of analyticsEnrollments) {
+    const course = e.course === "c1" ? course1 : course2;
+    const lessonIds = e.course === "c1" ? course1LessonIds : course2LessonIds;
+    const userId = aStudents[e.student].id;
+
+    db.insert(schema.enrollments)
+      .values({
+        userId,
+        courseId: course.id,
+        enrolledAt: daysAgo(e.enrolledDays),
+        completedAt:
+          e.completedDays === undefined ? null : daysAgo(e.completedDays),
+      })
+      .run();
+
+    // Spread lesson completions between enrollment and completion (or today)
+    const endDays = e.completedDays ?? 1;
+    for (let i = 0; i < e.lessonsDone; i++) {
+      const days = Math.round(
+        e.enrolledDays - ((e.enrolledDays - endDays) * (i + 1)) / e.lessonsDone
+      );
+      markComplete(userId, lessonIds[i], days);
+    }
+    if (e.lessonsDone > 0 && e.lessonsDone < lessonIds.length) {
+      markInProgress(userId, lessonIds[e.lessonsDone]);
+    }
+  }
+
+  // ─── Analytics: quiz attempts (repeats where best is not latest) ───
+
+  const s = (i: number) => aStudents[i].id;
+
+  // Noah — aced quiz 1, then a worse retake (best not latest)
+  recordQuizAttempt(s(0), quiz1.id, quiz1OptionIds, [0, 1, 2], 40);
+  recordQuizAttempt(s(0), quiz1.id, quiz1OptionIds, [0], 39);
+  recordQuizAttempt(s(0), quiz2.id, quiz2OptionIds, [0, 1], 37);
+
+  // Ava — fail, pass, then a worse third attempt (best not latest)
+  recordQuizAttempt(s(1), quiz1.id, quiz1OptionIds, [0, 1], 42);
+  recordQuizAttempt(s(1), quiz1.id, quiz1OptionIds, [0, 1, 2], 41);
+  recordQuizAttempt(s(1), quiz1.id, quiz1OptionIds, [1], 30);
+  recordQuizAttempt(s(1), quiz2.id, quiz2OptionIds, [0], 35);
+  recordQuizAttempt(s(1), quiz2.id, quiz2OptionIds, [0, 1], 34);
+
+  // Ethan — passed, then a worse retake (best not latest)
+  recordQuizAttempt(s(2), quiz1.id, quiz1OptionIds, [0, 1, 2], 35);
+  recordQuizAttempt(s(2), quiz1.id, quiz1OptionIds, [0, 2], 34);
+
+  // Mia — single pass
+  recordQuizAttempt(s(3), quiz1.id, quiz1OptionIds, [0, 1, 2], 20);
+
+  // Chloe — quiz 1 near miss; quiz 2 pass then worse retake (best not latest)
+  recordQuizAttempt(s(5), quiz1.id, quiz1OptionIds, [0, 1], 25);
+  recordQuizAttempt(s(5), quiz2.id, quiz2OptionIds, [0, 1], 20);
+  recordQuizAttempt(s(5), quiz2.id, quiz2OptionIds, [1], 19);
+
+  // Isabella — quiz 3 pass; quiz 4 PASS-MARK CASE: 2/3 = 0.667 on a
+  // passingScore 0.6 quiz, stored as passed = false by current scoring
+  recordQuizAttempt(s(7), quiz3.id, quiz3OptionIds, [0, 1, 2], 44);
+  recordQuizAttempt(s(7), quiz4.id, quiz4OptionIds, [0, 1], 40);
+
+  // Jack — quiz 3 fail, pass, then worse (best not latest); quiz 4 2/3 too
+  recordQuizAttempt(s(8), quiz3.id, quiz3OptionIds, [0], 11);
+  recordQuizAttempt(s(8), quiz3.id, quiz3OptionIds, [0, 1, 2], 10);
+  recordQuizAttempt(s(8), quiz3.id, quiz3OptionIds, [0, 2], 9);
+  recordQuizAttempt(s(8), quiz4.id, quiz4OptionIds, [0, 1], 8);
+
+  // Zoe — quiz 3 near miss
+  recordQuizAttempt(s(9), quiz3.id, quiz3OptionIds, [0, 1], 26);
+
+  // Lily — quiz 4 full marks
+  recordQuizAttempt(s(11), quiz4.id, quiz4OptionIds, [0, 1, 2], 20);
+
+  console.log(
+    `Analytics top-up: ${aStudents.length + 1} students, 2 instructors (${instructorNoCourses.name}: no courses, ${instructorDraftOnly.name}: draft "${draftCourse.title}"), empty published course "${emptyPublishedCourse.title}", quiz "${quiz4.title}", ${analyticsPurchases.length + 1} purchases, 1 team, ${analyticsEnrollments.length} enrollments.`
+  );
+
   console.log("\n✓ Seed complete!");
-  console.log("  Users: 9 (1 admin, 2 instructors, 6 students)");
+  console.log("  Users: 24 (1 admin, 4 instructors, 19 students)");
   console.log("  Categories: 5");
   console.log(
-    `  Courses: 2 (${course1LessonIds.length} + ${course2LessonIds.length} lessons)`
+    `  Courses: 4 (${course1LessonIds.length} + ${course2LessonIds.length} + 2 + 2 lessons; 3 published, 1 draft)`
   );
-  console.log("  Quizzes: 3");
-  console.log("  Enrollments: 7");
+  console.log("  Quizzes: 4");
+  console.log("  Enrollments: 20");
   console.log("  Course ratings: 6");
   console.log("  Lesson comments: 15 (4 questions awaiting an answer)");
-  console.log("  Purchases: 6 (5 individual + 1 team)");
-  console.log("  Teams: 1 (with 5 coupons)");
+  console.log("  Purchases: 18 (16 individual + 2 team)");
+  console.log("  Teams: 2 (with 8 coupons)");
 }
 
 seed().catch(console.error);
